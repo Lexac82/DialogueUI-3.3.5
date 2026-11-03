@@ -1,19 +1,11 @@
-## Interface: 120107, 120105, 50504, 20506, 11509, 16001
-## X-GameType: Camelot [AllowLoadGameType camelot]
-## X-GameType: Standard [AllowLoadGameType standard]
-## X-GameType: Vanilla [AllowLoadGameType vanilla]
-## X-GameType: TBC [AllowLoadGameType tbc]
-## X-GameType: Mists [AllowLoadGameType mists]
-## Version: 1.0.6
-
+## Interface: 30300
 ## Title: Dialogue UI
+## Notes: Immersive quest, gossip and book dialog UI for WotLK 3.3.5a
+## Author: Lexac82
+## Version: 0.1.0
 
-## Notes: Quest Dialogue UI
-
-## Author: Raenore, Peterodox
 ## SavedVariables: DialogueUI_DB, DialogueUI_Saves
 
-## IconTexture: Interface\AddOns\DialogueUI\Art\Icons\Logo
 ## AddonCompartmentFunc: DialogueUI_ShowSettingsFrame
 
 
