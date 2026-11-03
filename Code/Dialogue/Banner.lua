@@ -74,12 +74,14 @@ function Banner:Layout()
     self:SetWidth(math.max(width, self.minWidth));
     self.frameWidth = width;
 
-    local offsetY = WorldFrame:GetHeight() * 0.1;
+    -- [3.3.5a Port]: Use UIParent:GetHeight() instead of WorldFrame for screen sizing
+    local offsetY = UIParent:GetHeight() * 0.1;
     self.frameOffsetY = -offsetY;
     self.fromOffsetY = self.frameOffsetY - 40;
 
     self:ClearAllPoints();
-    self:SetPoint("TOP", nil, "TOP", 0, self.frameOffsetY);
+    -- [3.3.5a Port]: Explicitly anchor to UIParent instead of nil
+    self:SetPoint("TOP", UIParent, "TOP", 0, self.frameOffsetY);
 end
 
 function Banner:OnMouseDown(button)
