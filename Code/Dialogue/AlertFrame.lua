@@ -85,9 +85,10 @@ function AlertFrame:OnShow()
     self:RegisterEvent("UI_INFO_MESSAGE");
     self:RegisterEvent("QUEST_ACCEPTED");
     self:RegisterEvent("QUEST_TURNED_IN");
+    -- [3.3.5a Port]: Replaced modern LFG proposal events with WotLK specific LFG events
     self:RegisterEvent("LFG_PROPOSAL_SHOW");
-    self:RegisterEvent("LFG_PROPOSAL_DONE");
     self:RegisterEvent("LFG_PROPOSAL_FAILED");
+    self:RegisterEvent("LFG_PROPOSAL_SUCCEEDED");
 end
 
 function AlertFrame:OnHide()
@@ -96,9 +97,10 @@ function AlertFrame:OnHide()
     self:UnregisterEvent("UI_INFO_MESSAGE");
     self:UnregisterEvent("QUEST_ACCEPTED");
     self:UnregisterEvent("QUEST_TURNED_IN");
+    -- [3.3.5a Port]: Unregister WotLK LFG events
     self:UnregisterEvent("LFG_PROPOSAL_SHOW");
-    self:UnregisterEvent("LFG_PROPOSAL_DONE");
     self:UnregisterEvent("LFG_PROPOSAL_FAILED");
+    self:UnregisterEvent("LFG_PROPOSAL_SUCCEEDED");
 end
 
 function AlertFrame:OnEvent(event, ...)
@@ -113,7 +115,7 @@ function AlertFrame:OnEvent(event, ...)
         if classicQuestID and classicQuestID ~= 0 then
             questID = classicQuestID;
         end
-        if API.ShouldShowQuestAcceptedAlert(questID) then   --Emissary Quests (LEG, BFA) are auto accepted upon login
+        if API.ShouldShowQuestAcceptedAlert(questID) then
             self:DisplayQuestMessage(questID, L["Format Quest Accepted"], COLOR_YELLOW);
         end
     elseif event == "QUEST_TURNED_IN" then
@@ -121,7 +123,8 @@ function AlertFrame:OnEvent(event, ...)
         self:DisplayQuestMessage(questID, L["Format Quest Completed"], COLOR_GREEN);
     elseif event == "LFG_PROPOSAL_SHOW" then
         self:OnLFGProposal();
-    elseif event == "LFG_PROPOSAL_DONE" or event == "LFG_PROPOSAL_FAILED" then
+    elseif event == "LFG_PROPOSAL_FAILED" or event == "LFG_PROPOSAL_SUCCEEDED" then
+        -- [3.3.5a Port]: Handled WotLK LFG proposal end events
         self:HideLFGDialog();
     end
 end
@@ -261,6 +264,7 @@ local function LFGAlert_OnMouseDown(self)
     end
 end
 
+-- [3.3.5a Port]: Simplified animation creation or removed advanced smoothing attributes for WotLK compatibility
 local function CreateBounceAnimation(texture)
     local ag = texture:CreateAnimationGroup();
     ag:SetLooping("REPEAT");
@@ -269,13 +273,11 @@ local function CreateBounceAnimation(texture)
     a1:SetOrder(1);
     a1:SetOffset(0, -8);
     a1:SetDuration(0.6);
-    a1:SetSmoothing("IN");
 
     local a2 = ag:CreateAnimation("Translation");
     a2:SetOrder(2);
     a2:SetOffset(0, 8);
     a2:SetDuration(0.6);
-    a2:SetSmoothing("OUT");
 
     return ag
 end
@@ -336,8 +338,9 @@ function AlertFrame:HideLFGDialog()
 end
 
 function AlertFrame:OnLFGProposal()
-    local proposalExists, id, typeID, subtypeID, name, backgroundTexture, role, hasResponded, totalEncounters, completedEncounters, numMembers, isLeader, isHoliday, proposalCategory, isSilent = GetLFGProposal();
-    if (not proposalExists) or isSilent then
+    -- [3.3.5a Port]: Adjusted return values for WotLK GetLFGProposal API
+    local dungeonID, proposalType, name, texture, role, hasResponded, totalEncounters, completedEncounters, numMembers, dungeonType, isHeroic = GetLFGProposal();
+    if (not dungeonID) then
         return
     end
 
