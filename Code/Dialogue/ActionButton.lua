@@ -9,11 +9,18 @@ local SetOverrideBindingClick = SetOverrideBindingClick;
 local SetOverrideBindingItem = SetOverrideBindingItem;
 local SetOverrideBinding = SetOverrideBinding;
 local ClearOverrideBindings = ClearOverrideBindings;
-local GetItemNameByID = C_Item.GetItemNameByID;
-local GetCVarBool = C_CVar.GetCVarBool;
 
-local SecureButtons = {};               --All SecureButton that were created. Recycle/Share unused buttons unless it was specified not to
-local PrivateSecureButtons = {};        --These are the buttons that are not shared with other modules
+-- [3.3.5a Port]: Use global GetItemInfo instead of the retail C_Item namespace
+local GetItemInfo = GetItemInfo;
+
+-- [3.3.5a Port]: GetCVarBool is globally available in WotLK (no C_CVar namespace)
+local GetCVarBool = GetCVarBool;
+
+-- [3.3.5a Port]: Use global MouseIsOver function instead of retail IsMouseMotionFocus method
+local MouseIsOver = MouseIsOver;
+
+local SecureButtons = {};               -- All SecureButton instances created. Recycle/Share unused buttons unless specified otherwise
+local PrivateSecureButtons = {};        -- These are the buttons that are not shared with other modules
 
 
 local function IsActionButtonUseKeyDown()
@@ -51,9 +58,9 @@ function SecureButtonContainer:ClearOverrideBinding()
 end
 
 function SecureButtonContainer:SetPressToUseItem(key, item, ownerActionButton)
-    --item: name or link
+    -- item: name or link
 
-    if InCombatLockdown() or self.isMidnight then
+    if InCombatLockdown() then
         return
     end
     self:ClearOverrideBinding();
@@ -74,7 +81,7 @@ function SecureButtonContainer:SetPressToUseItem(key, item, ownerActionButton)
 end
 
 function SecureButtonContainer:SetPressToCommand(key, command, ownerActionButton)
-    if InCombatLockdown() or self.isMidnight then
+    if InCombatLockdown() then
         return
     end
     self:ClearOverrideBinding();
@@ -93,7 +100,7 @@ function SecureButtonContainer:SetPressToCommand(key, command, ownerActionButton
 end
 
 function SecureButtonContainer:SetPressToClick(key, objectName, ownerActionButton)
-    if InCombatLockdown() or self.isMidnight then
+    if InCombatLockdown() then
         return
     end
     self:ClearOverrideBinding();
@@ -214,22 +221,6 @@ function SecureButtonMixin:SetUseItemByID(itemID, mouseButton, allowPressKeyToUs
         self:SetTriggerMouseButton(mouseButton);
         self:SetMacroText("/use item:"..itemID);
         if allowPressKeyToUse then
-            --[[
-            if not IsNameValid(itemName) then
-                itemName = GetItemNameByID(itemID);
-                if not IsNameValid(itemName) then
-                    local callback = function(id)
-                        if id == itemID and self:IsShown() and (not InCombatLockdown()) then
-                            itemName = GetItemNameByID(itemID);
-                            SecureButtonContainer:SetPressToUseItem(nil, itemName, self);
-                        end
-                    end
-                    CallbackRegistry:LoadItem(itemID, callback);
-                end
-            end
-            return SecureButtonContainer:SetPressToUseItem(nil, itemName, self);
-            --]]
-
             return SecureButtonContainer:SetPressToClick(nil, self:GetName(), self);
         end
     end
@@ -287,14 +278,14 @@ function SecureButtonMixin:CoverObject(object, expand)
 end
 
 function SecureButtonMixin:IsFocused()
-    return self:IsShown() and self:IsMouseMotionFocus()
+    -- [3.3.5a Port]: Replaced retail method IsMouseMotionFocus() with the WotLK-compatible global MouseIsOver()
+    return self:IsShown() and MouseIsOver(self)
 end
 
 function SecureButtonMixin:PostClick(button, down)
     if self.PostClickCallback then
         self:PostClickCallback(button);
     end
-    --print(self:GetName(), button, down);  --debug
 end
 
 function SecureButtonMixin:SetPostClickCallback(callback)
@@ -307,7 +298,7 @@ local function CreateSecureActionButton()
     local index = #SecureButtons + 1;
     local namePrefix = "DUISecureActionButton";
 
-    local button = CreateFrame("Button", namePrefix..index, SecureButtonContainer, "InsecureActionButtonTemplate"); --Perform action outside of combat
+    local button = CreateFrame("Button", namePrefix..index, SecureButtonContainer, "InsecureActionButtonTemplate");
     SecureButtons[index] = button;
     button.index = index;
     button.isActive = true;
@@ -318,7 +309,6 @@ local function CreateSecureActionButton()
     button:SetScript("OnHide", SecureActionButton_OnHide);
 
     SecureButtonContainer:RegisterEvent("PLAYER_REGEN_DISABLED");
-    --SecureButtonContainer:RegisterEvent("PLAYER_REGEN_ENABLED");
 
     return button
 end
