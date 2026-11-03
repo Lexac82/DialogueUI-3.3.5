@@ -123,16 +123,20 @@ end
 ChatFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
 ChatFrame:SetSize(FRAME_WIDTH, FRAME_HEIGHT);
 ChatFrame:SetFrameStrata("LOW");
-ChatFrame:SetFixedFrameStrata(true);
+-- [3.3.5a Port]: SetFixedFrameStrata does not exist in WotLK
+-- ChatFrame:SetFixedFrameStrata(true);
 ChatFrame:SetFrameLevel(1);
-ChatFrame:SetFixedFrameLevel(true);
+-- [3.3.5a Port]: SetFixedFrameLevel does not exist in WotLK
+-- ChatFrame:SetFixedFrameLevel(true);
 
 local HiddenFrame = CreateFrame("Frame", nil, ChatFrame);
 ChatFrame.HiddenFrame = HiddenFrame;
 HiddenFrame:SetFrameStrata("LOW");
-HiddenFrame:SetFixedFrameStrata(true);
+-- [3.3.5a Port]: SetFixedFrameStrata does not exist in WotLK
+-- HiddenFrame:SetFixedFrameStrata(true);
 HiddenFrame:SetFrameLevel(1);
-HiddenFrame:SetFixedFrameLevel(true);
+-- [3.3.5a Port]: SetFixedFrameLevel does not exist in WotLK
+-- HiddenFrame:SetFixedFrameLevel(true);
 HiddenFrame:SetIgnoreParentAlpha(true);
 HiddenFrame:Hide();
 HiddenFrame:SetAlpha(0);
@@ -143,8 +147,9 @@ do  --Frame Background
     bg:SetPoint("TOPLEFT", ChatFrame, "TOPLEFT", 0, 0);
     bg:SetPoint("BOTTOMRIGHT", ChatFrame, "BOTTOMRIGHT", 0, 0);
     local corner = 16;
-    bg:SetTextureSliceMargins(corner, corner, corner, corner);
-    bg:SetTextureSliceMode(1);
+    -- [3.3.5a Port]: Texture slicing is not supported in WotLK, remove Slicing methods
+    -- bg:SetTextureSliceMargins(corner, corner, corner, corner);
+    -- bg:SetTextureSliceMode(1);
     bg:SetTexture("Interface/AddOns/DialogueUI/Art/Theme_Shared/ChatFrameBackground.png");
     ChatFrame.Background = bg;
 end
@@ -552,7 +557,8 @@ function ChatFrame:HideHiddenFrame()
 end
 
 function ChatFrame:UpdateFocused()
-    if (self.isFocused and self:IsMouseOver()) or ((not self.isFocused) and self:IsMouseOver(0, 0, 0, FRAME_HITRECT_SHIRNK_RIGHT)) or (ScrollView:IsDraggingThumb()) then
+    -- [3.3.5a Port]: WotLK IsMouseOver() does not take offset arguments, simplify to standard IsMouseOver() check
+    if (self.isFocused and self:IsMouseOver()) or ((not self.isFocused) and self:IsMouseOver()) or (ScrollView:IsDraggingThumb()) then
         if not self.isFocused then
             self:OnMouseFocusGained();
         end
@@ -583,7 +589,8 @@ function ChatFrame:OnShow()
         end
     end
 
-    UpdateTextureSliceScale(self.Background);
+    -- [3.3.5a Port]: Removed UpdateTextureSliceScale as texture slicing is unsupported in WotLK
+    -- UpdateTextureSliceScale(self.Background);
 end
 
 function ChatFrame:OnHide()
