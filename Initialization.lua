@@ -226,8 +226,7 @@ end);
 do
     local currentToCVersion = select(4, GetBuildInfo());
     if not currentToCVersion then
-        print("API Changed: GetBuildInfo()")
-        currentToCVersion = 999999;
+        currentToCVersion = 30300;
     end
     currentToCVersion = tonumber(currentToCVersion);
 
@@ -236,19 +235,22 @@ do
     end
     addon.IsToCVersionEqualOrNewerThan = IsToCVersionEqualOrNewerThan;
 
-    local game = C_AddOns.GetAddOnMetadata(addonName, "X-GameType");
+    -- 3.3.5 Compatibility: Use global GetAddOnMetadata instead of C_AddOns.GetAddOnMetadata
+    local GetAddOnMetadata = GetAddOnMetadata or (C_AddOns and C_AddOns.GetAddOnMetadata);
+    local game = GetAddOnMetadata and GetAddOnMetadata(addonName, "X-GameType") or "WotLK";
 
-    -- TODO: "Camelot" / WOW_PROJECT_CAMELOT will be renamed to "Forever"
-    addon.IS_FOREVER = game == "Camelot" or WOW_PROJECT_ID == WOW_PROJECT_CAMELOT;
-    addon.IS_MISTS = game == "Mists" or WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC;
-    addon.IS_TBC = game == "TBC" or WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC;
-    addon.IS_VANILLA = game == "Vanilla" or WOW_PROJECT_ID == WOW_PROJECT_CLASSIC;
-    addon.IS_RETAIL = game == "Standard" or WOW_PROJECT_ID == WOW_PROJECT_MAINLINE;
-    addon.IS_CATA = game == "Cata" or WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC;
+    -- Adjusted flags for WotLK 3.3.5a
+    addon.IS_FOREVER = false;
+    addon.IS_MISTS = false;
+    addon.IS_TBC = false;
+    addon.IS_VANILLA = false;
+    addon.IS_RETAIL = false;
+    addon.IS_CATA = false;
+    addon.IS_WOTLK = true;
 
     -- Modern (Standard & Forever) have Secrets, etc.
-    addon.IS_MODERN = addon.IS_RETAIL or addon.IS_FOREVER;
-    addon.IS_CLASSIC = not addon.IS_MODERN;
+    addon.IS_MODERN = false;
+    addon.IS_CLASSIC = true;
 end
 
 
@@ -283,8 +285,6 @@ local function ResetTutorials()
     end
 end
 addon.ResetTutorials = ResetTutorials;
-
-
 
 
 do
