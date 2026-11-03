@@ -16,41 +16,30 @@
     <Script file="DialogueUI.lua"/>
     <Script file="Tutorial.lua"/>
 
-    <Frame name="DUIDialogHotkeyTemplate" mixin="DUIDialogHotkeyFrameMixin" hidden="false" virtual="true">
-        <Size x="34" y="34"/>
-        <!--Frames>
-            <Frame parentKey="Background" setAllPoints="true" hidden="true" inherits="DUIPseudoSliceTextureTemplate">
-                <KeyValues>
-                    <KeyValue key="drawLayer" value="OVERLAY" type="string"/>
-                    <KeyValue key="textureSubLevel" value="4" type="number"/>
-                </KeyValues>
-            </Frame>
-        </Frames-->
-        <Layers>
-            <Layer level="OVERLAY" textureSubLevel="4">
-                <Texture parentKey="Background" setAllPoints="true" hidden="true">
-                    <TextureSliceMode mode="Stretched"/>
-                    <TextureSliceMargins left="8" right="8" top="8" bottom="8"/>
-                </Texture>
-            </Layer>
-            <Layer level="OVERLAY" textureSubLevel="5">
-                <FontString parentKey="KeyName" inherits="DUIFont_Hotkey" justifyH="CENTER" justifyV="MIDDLE" hidden="true">
-                    <Anchors>
-                        <Anchor point="CENTER"/>
-                    </Anchors>
-                </FontString>
-                <Texture parentKey="Icon" hidden="true">
-                    <Size x="14" y="14"/>
-                    <Anchors>
-                        <Anchor point="CENTER"/>
-                    </Anchors>
-                </Texture>
-            </Layer>
-        </Layers>
-        <Scripts>
-            <OnLoad method="OnLoad"/>
-        </Scripts>
-    </Frame>
+	<Frame name="DUIDialogHotkeyTemplate" mixin="DUIDialogHotkeyFrameMixin" hidden="false" virtual="true">
+    	<Size x="34" y="34"/>
+    	<Layers>
+        	<Layer level="OVERLAY" textureSubLevel="4">
+            	<Texture parentKey="Background" setAllPoints="true" hidden="true"/>
+        	</Layer>
+        	<Layer level="OVERLAY" textureSubLevel="5">
+            	<FontString parentKey="KeyName" inherits="DUIFont_Hotkey" justifyH="CENTER" justifyV="MIDDLE" hidden="true">
+                	<Anchors>
+                    	<Anchor point="CENTER"/>
+                	</Anchors>
+            	</FontString>
+            	<Texture parentKey="Icon" hidden="true">
+                	<Size x="14" y="14"/>
+                	<Anchors>
+                    	<Anchor point="CENTER"/>
+                	</Anchors>
+            	</Texture>
+        	</Layer>
+    	</Layers>
+    	<Scripts>
+        	<OnLoad method="OnLoad"/>
+    	</Scripts>
+	</Frame>
 
     <Frame name="DUIDialogQuestTypeFrameTemplate" mixin="DUIDialogQuestTypeFrameMixin" useParentLevel="true" virtual="true">
         <Size x="48" y="16"/>
@@ -74,18 +63,15 @@
         </Layers>
     </Frame>
         
-    <Button name="DUIDialogOptionButtonTemplate" mixin="DUIDialogOptionButtonMixin" registerForClicks="LeftButtonUp, RightButtonUp" hyperlinksEnabled="true" motionScriptsWhileDisabled="true" virtual="true">
+    <Button name="DUIDialogOptionButtonTemplate" mixin="DUIDialogOptionButtonMixin" registerForClicks="LeftButtonUp, RightButtonUp" motionScriptsWhileDisabled="true" virtual="true">
         <Size x="256" y="20"/>
         <Layers>
             <Layer level="BACKGROUND" textureSubLevel="1">
-                <Texture parentKey="Background" setAllPoints="true">
-                    <TextureSliceMode mode="Tiled"/>
-                    <TextureSliceMargins left="16" right="16" top="16" bottom="16"/>
-                </Texture>
+                <Texture parentKey="Background" setAllPoints="true"/>
             </Layer>
         </Layers>
         <Frames>
-            <Frame parentKey="Content" propagateHyperlinksToParent="true">
+            <Frame parentKey="Content">
                 <Size x="20" y="20"/>
                 <Anchors>
                     <Anchor point="TOPLEFT"/>
@@ -114,13 +100,10 @@
             <OnClick method="OnClick"/>
             <OnMouseDown method="OnMouseDown"/>
             <OnMouseUp method="OnMouseUp"/>
-            <OnHyperlinkEnter method="OnHyperlinkEnter"/>
-            <OnHyperlinkLeave method="OnHyperlinkLeave"/>
-            <OnHyperlinkClick method="OnHyperlinkClick"/>
         </Scripts>
     </Button>
 
-    <Frame name="DUIDialogOptionButtonLockTemplate" mixin="DUIDialogOptionButtonLockMixin" useParentLevel="true" hidden="true" virtual="true">
+	<Frame name="DUIDialogOptionButtonLockTemplate" mixin="DUIDialogOptionButtonLockMixin" useParentLevel="true" hidden="true" virtual="true">
         <Size x="256" y="20"/>
         <Layers>
             <Layer level="BACKGROUND" textureSubLevel="5">
@@ -133,7 +116,7 @@
             </Layer>
         </Layers>
         <Frames>
-            <Frame parentKey="ActionBlocker" setAllPoints="true" enableMouse="true" enableMouseClicks="true" enableMouseMotion="true"/>
+            <Frame parentKey="ActionBlocker" setAllPoints="true" enableMouse="true"/>
         </Frames>
         <Scripts>
             <OnLoad method="OnLoad"/>
@@ -141,7 +124,7 @@
         </Scripts>
     </Frame>
 
-    <Frame name="DUIDialogInputBoxTemplate" mixin="DUIDialogInputBoxMixin" virtual="true" enableMouse="true">
+	<Frame name="DUIDialogInputBoxTemplate" mixin="DUIDialogInputBoxMixin" virtual="true" enableMouse="true">
         <Size x="256" y="54"/>
         <Layers>
             <Layer level="OVERLAY" textureSubLevel="5">
@@ -165,16 +148,10 @@
                 <FontString inherits="DUIFont_Quest_Quest" justifyH="CENTER" justifyV="TOP"/>
                 <Layers>
                     <Layer level="BACKGROUND">
-                        <Texture parentKey="Background" setAllPoints="true">
-                            <TextureSliceMode mode="Tiled"/>
-                            <TextureSliceMargins left="24" right="24" top="24" bottom="24"/>
-                        </Texture>
+                        <Texture parentKey="Background" setAllPoints="true"/>
                     </Layer>
                     <Layer level="HIGHLIGHT">
-                        <Texture parentKey="Highlight" setAllPoints="true">
-                            <TextureSliceMode mode="Tiled"/>
-                            <TextureSliceMargins left="24" right="24" top="24" bottom="24"/>
-                        </Texture>
+                        <Texture parentKey="Highlight" setAllPoints="true"/>
                     </Layer>
                 </Layers>
             </EditBox>
@@ -187,7 +164,7 @@
         </Scripts>
     </Frame>
 
-    <Button name="DUIDialogItemButtonTemplate" mixin="DUIDialogItemButtonMixin" flattenRenderLayers="true" hidden="true" registerForClicks="LeftButtonUp, RightButtonUp" virtual="true"> <!--Display Items-->
+   <Button name="DUIDialogItemButtonTemplate" mixin="DUIDialogItemButtonMixin" hidden="true" registerForClicks="LeftButtonUp, RightButtonUp" virtual="true"> <!--Display Items-->
         <Size x="174" y="36"/>
         <Frames>
             <Frame parentKey="AreaDefinitionItemBorder">
@@ -199,15 +176,10 @@
         </Frames>
         <Layers>
             <Layer level="BACKGROUND" textureSubLevel="1">
-                <Texture parentKey="Background" setAllPoints="true">
-                    <TextureSliceMode mode="Tiled"/>
-                    <TextureSliceMargins left="16" right="16" top="16" bottom="16"/>
-                </Texture>
+                <Texture parentKey="Background" setAllPoints="true"/>
             </Layer>
             <Layer level="OVERLAY" textureSubLevel="3">
                 <Texture parentKey="ItemBorder">
-                    <TextureSliceMode mode="Stretched"/>
-                    <TextureSliceMargins left="8" right="8" top="8" bottom="8"/>
                     <Anchors>
                         <Anchor point="TOPLEFT" relativeKey="$parent.AreaDefinitionItemBorder" relativePoint="TOPLEFT"/>
                         <Anchor point="BOTTOMRIGHT" relativeKey="$parent.AreaDefinitionItemBorder" relativePoint="BOTTOMRIGHT"/>
@@ -250,14 +222,6 @@
 				</Texture>
             </Layer>
         </Layers>
-		<Animations>
-			<AnimationGroup parentKey="AnimSheen" setToFinalAlpha="true">
-				<Alpha parentKey="Delay1" childKey="Sheen" fromAlpha="0" toAlpha="0" duration="0.25" order="1"/>
-				<Alpha childKey="Sheen" fromAlpha="0" toAlpha="1" duration="0.2" order="2"/>
-				<Translation childKey="Sheen" offsetX="140" offsetY="0" duration="0.6" order="2" smoothing="OUT"/>
-				<Alpha childKey="Sheen" startDelay="0.1" fromAlpha="1" toAlpha="0" duration="0.45" order="2"/>
-			</AnimationGroup>
-		</Animations>
         <Scripts>
             <OnLoad method="OnLoad"/>
             <OnEnter method="OnEnter"/>
@@ -270,10 +234,7 @@
         <Size x="174" y="15"/>
         <Layers>
             <Layer level="ARTWORK">
-                <Texture parentKey="Background" setAllPoints="true">
-                    <TextureSliceMode mode="Tiled"/>
-                    <TextureSliceMargins left="16" right="16" top="16" bottom="16"/>
-                </Texture>
+                <Texture parentKey="Background" setAllPoints="true"/>
             </Layer>
             <Layer level="OVERLAY" textureSubLevel="5">
                 <FontString parentKey="Name" inherits="DUIFont_Item" justifyH="LEFT" justifyV="MIDDLE" maxLines="1" spacing="1">
@@ -309,10 +270,7 @@
         <Size x="256" y="18"/>
         <Layers>
             <Layer level="BACKGROUND" textureSubLevel="1">
-                <Texture parentKey="Background" setAllPoints="true" hidden="true">
-                    <TextureSliceMode mode="Tiled"/>
-                    <TextureSliceMargins left="16" right="16" top="8" bottom="8"/>
-                </Texture>
+                <Texture parentKey="Background" setAllPoints="true" hidden="true"/>
             </Layer>
             <Layer level="OVERLAY">
                 <Texture parentKey="Icon">
@@ -340,30 +298,12 @@
                         <Anchor point="CENTER"/>
                     </Anchors>
                 </Texture>
-                <MaskTexture parentKey="Mask1" file="Interface/AddOns/DialogueUI/Art/Theme_Shared/BrushFrame-Mask-TopLeft" hWrapMode="CLAMP" vWrapMode="CLAMP">
-                    <MaskedTextures>
-                        <MaskedTexture childKey="Background"/>
-                    </MaskedTextures>
-                    <Size x="128" y="128"/>
-                    <Anchors>
-                        <Anchor point="TOPLEFT" relativeKey="$parent" relativePoint="TOPLEFT" x="0" y="0"/>
-                    </Anchors>
-                </MaskTexture>
-                <MaskTexture parentKey="Mask2" file="Interface/AddOns/DialogueUI/Art/Theme_Shared/BrushFrame-Mask-BottomRight" hWrapMode="CLAMP" vWrapMode="CLAMP">
-                    <MaskedTextures>
-                        <MaskedTexture childKey="Background"/>
-                    </MaskedTextures>
-                    <Size x="128" y="128"/>
-                    <Anchors>
-                        <Anchor point="BOTTOMRIGHT" relativeKey="$parent" relativePoint="BOTTOMRIGHT" x="0" y="0"/>
-                    </Anchors>
-                </MaskTexture>
             </Layer>
         </Layers>
     </Frame>
 
-    <Frame name="DUIQuestFrame" mixin="DUIDialogBaseMixin" hidden="true" frameStrata="DIALOG" flattenRenderLayers="true" topLevel="true">
-        <size x="300" y="400"/>
+	<Frame name="DUIQuestFrame" mixin="DUIDialogBaseMixin" hidden="true" frameStrata="DIALOG" topLevel="true">
+        <Size x="300" y="400"/>
         <Frames>
             <Frame parentKey="BackgroundFrame" setAllPoints="true" useParentLevel="true">
                 <Frames>
@@ -521,15 +461,10 @@
                         <Size x="32" y="32"/>
                         <Layers>
                             <Layer level="ARTWORK">
-                                <Texture parentKey="BackTexture" setAllPoints="true">
-                                    <TextureSliceMode mode="Stretched"/>
-                                    <TextureSliceMargins left="40" right="16" top="8" bottom="8"/>
-                                </Texture>
+                                <Texture parentKey="BackTexture" setAllPoints="true"/>
                             </Layer>
                             <Layer level="OVERLAY" textureSubLevel="7">
                                 <Texture parentKey="FrontTexture">
-                                    <!--TextureSliceMode mode="Stretched"/>
-                                    <TextureSliceMargins left="8" right="8" top="8" bottom="8"/-->
                                     <Anchors>
                                         <Anchor point="TOPLEFT" relativeKey="$parent" relativePoint="TOPLEFT" x="8" y="0"/>
                                         <Anchor point="BOTTOMLEFT" relativeKey="$parent" relativePoint="BOTTOMLEFT" x="8" y="0"/>
@@ -543,16 +478,10 @@
                         <Size x="32" y="32"/>
                         <Layers>
                             <Layer level="ARTWORK">
-                                <Texture parentKey="BackTexture" setAllPoints="true" alphaMode="ADD">
-                                    <TextureSliceMode mode="Stretched"/>
-                                    <TextureSliceMargins left="16" right="16" top="16" bottom="16"/>
-                                </Texture>
+                                <Texture parentKey="BackTexture" setAllPoints="true" alphaMode="ADD"/>
                             </Layer>
                             <Layer level="OVERLAY" textureSubLevel="7">
-                                <Texture parentKey="FrontTexture" setAllPoints="true" ignoreParentAlpha="true">
-                                    <TextureSliceMode mode="Stretched"/>
-                                    <TextureSliceMargins left="16" right="16" top="16" bottom="16"/>
-                                </Texture>
+                                <Texture parentKey="FrontTexture" setAllPoints="true" ignoreParentAlpha="true"/>
                             </Layer>
                         </Layers>
                     </Frame>
@@ -569,9 +498,6 @@
 
             <Frame parentKey="InputBox" inherits="DUIDialogInputBoxTemplate" hidden="true"/>
         </Frames>
-        <KeyValues>
-            <KeyValue key="nodeignore" value="true" type="boolean"/>
-        </KeyValues>
         <Scripts>
             <OnLoad method="OnLoad"/>
             <OnShow method="OnShow"/>
@@ -580,35 +506,5 @@
             <OnMouseUp method="OnMouseUp"/>
             <OnMouseWheel method="OnMouseWheel"/>
         </Scripts>
-    </Frame>
-
-    <AnimationGroup name="DUIGenericPopupAnimationTemplate" setToFinalAlpha="true" virtual="true">
-        <Alpha duration="0.25" order="1" fromAlpha="0" toAlpha="1"/>
-        <Translation duration="0" order="1" offsetY="-32" offsetX="0"/>
-        <Path curve="SMOOTH" duration="0.5" order="1">
-            <ControlPoints>
-                <ControlPoint offsetY="38" offsetX="0"/>
-                <ControlPoint offsetY="32" offsetX="0"/>
-            </ControlPoints>
-        </Path>
-    </AnimationGroup>
-
-    <AnimationGroup name="DUIQuestFlyoutAnimationTemplate" setToFinalAlpha="true" virtual="true">
-        <Translation duration="0" order="1" offsetX="0" offsetY="-16"/>
-        <Translation duration="0.2" order="1" offsetX="0" offsetY="16" smoothing="OUT"/>
-        <Translation childKey="ContentFrame" duration="0" order="1" offsetX="-12" offsetY="0" smoothing="IN"/>
-        <Alpha childKey="ContentFrame" duration="0" order="1" fromAlpha="0" toAlpha="0"/>
-        <Alpha childKey="Alert" duration="0" order="1" fromAlpha="1" toAlpha="1"/>
-        <VertexColor childKey="Alert" duration="0.5" order="1">
-            <StartColor r="0.5" g="1" b="0.5"/>
-            <EndColor r="0.42" g="0.75" b="0.48"/>
-        </VertexColor>
-
-        <Translation duration="1.5" order="2" offsetX="0" offsetY="0"/>
-
-        <Translation childKey="Alert" duration="0.25" order="3" offsetX="12" offsetY="0" smoothing="IN"/>
-        <Alpha childKey="Alert" duration="0.15" order="3" fromAlpha="1" toAlpha="0"/>
-        <Translation childKey="ContentFrame" duration="0.25" order="3" offsetX="12" offsetY="0" smoothing="OUT"/>
-        <Alpha childKey="ContentFrame" duration="0.25" order="3" fromAlpha="0" toAlpha="1"/>
-    </AnimationGroup>
+    </Frame>    
 </Ui>
