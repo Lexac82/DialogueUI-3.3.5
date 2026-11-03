@@ -1531,7 +1531,8 @@ function DUIDialogBaseMixin:HandleQuestDetail(playFadeIn)
 
     if self.handlerArgs and self.handlerArgs[1] and self.handlerArgs[1] ~= 0 then
         local questStartItemID = self.handlerArgs[1];
-        local icon = C_Item.GetItemIconByID(questStartItemID);
+        -- Backport 3.3.5a: Use GetItemInfo safely instead of C_Item.GetItemIconByID if unavailable
+        local icon = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(questStartItemID)) or select(10, GetItemInfo(questStartItemID));
         if icon then
             self.FrontFrame.Header.Portrait:SetTexture(icon);
         end
@@ -1812,7 +1813,7 @@ function DUIDialogBaseMixin:HandleQuestComplete(playFadeIn)
     if GetDBBool("AutoCompleteQuest") and (not self.chooseItems) then
         local questID = GetQuestID();
         local title = GetQuestTitle();
-        local preyQuestID = C_QuestLog.GetActivePreyQuest and C_QuestLog.GetActivePreyQuest();
+        local preyQuestID = (C_QuestLog and C_QuestLog.GetActivePreyQuest) and C_QuestLog.GetActivePreyQuest() or nil;
 
         if (preyQuestID and preyQuestID == questID) or GossipDataProvider:ShouldAutoCompleteQuest(questID, title) then
             local completionText = GetQuestText("Complete");
