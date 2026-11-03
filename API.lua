@@ -1743,8 +1743,8 @@ do  -- Color
 end
 
 do  -- Currency
-    local GetCurrencyContainerInfoDefault = C_CurrencyInfo.GetCurrencyContainerInfo;
-    local GetCurrencyInfo = C_CurrencyInfo.GetCurrencyInfo;
+    --[[ local GetCurrencyContainerInfoDefault = C_CurrencyInfo.GetCurrencyContainerInfo;
+	local GetCurrencyInfo = C_CurrencyInfo.GetCurrencyInfo;
     local format = string.format;
     local FormatLargeNumber = FormatLargeNumber;
 
@@ -1754,11 +1754,33 @@ do  -- Currency
             return entry.name, entry.icon, entry.displayAmount, entry.quality
         end
         return name, texture, numItems, quality
+    end --]]
+
+	-- 3.3.5: Create compatibility for currency
+	local format = string.format;
+    local FormatLargeNumber = FormatLargeNumber or function(n) return tostring(n); end;
+
+    -- Fallback for C_CurrencyInfo in 3.3.5a
+    local GetCurrencyInfo = GetCurrencyInfo or function(currencyID)
+        -- In WotLK 3.3.5a, currencies are often handled differently or via item IDs.
+        -- Returning dummy values to prevent errors.
+        return { name = "Unknown", quantity = 0, maxQuantity = 0, iconFileID = 0 };
+    end;
+
+    local GetCurrencyContainerInfoDefault = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyContainerInfo or function(currencyID, numItems)
+        return nil;
+    end;
+
+    local function GetCurrencyContainerInfo(currencyID, numItems, name, texture, quality)
+        local entry = GetCurrencyContainerInfoDefault(currencyID, numItems);
+        if entry then
+            return entry.name, entry.icon, entry.displayAmount, entry.quality
+        end
+        return name, texture, numItems, quality
     end
-    API.GetCurrencyContainerInfo = GetCurrencyContainerInfo;
+	API.GetCurrencyContainerInfo = GetCurrencyContainerInfo;
 
-
-    local function GenerateMoneyText(rawCopper, colorized, noAbbreviation) --coins
+	local function GenerateMoneyText(rawCopper, colorized, noAbbreviation) --coins
         local text;
         local gold = floor(rawCopper / 10000);
         local silver = floor((rawCopper - gold * 10000) / 100);
@@ -3284,7 +3306,7 @@ do  -- Inventory Bags Container
     API.GetItemLinkInBag = GetItemLinkInBag;
 end
 
-do  -- Spell
+--[[ do  -- Spell
     local DoesSpellExist = C_Spell.DoesSpellExist;
     local GetShapeshiftFormID = GetShapeshiftFormID or AlwaysZero;
     local GetCurrentGlyphNameForSpell = GetCurrentGlyphNameForSpell or AlwaysNil;
@@ -3330,6 +3352,36 @@ do  -- Spell
         end
         API.GetSpellName = GetSpellName;
     end
+end --]]
+
+do  -- 3.3.5: Spell (3.3.5 Compatibility)
+    local DoesSpellExist = DoesSpellExist or function(spellID) return spellID ~= nil; end;
+    local GetShapeshiftFormID = GetShapeshiftFormID or AlwaysZero;
+    local GetCurrentGlyphNameForSpell = GetCurrentGlyphNameForSpell or AlwaysNil;
+
+    API.GetShapeshiftFormID = GetShapeshiftFormID;
+
+    local function GetGlyphIDForSpell(spellID)
+        local _, glyphID = GetCurrentGlyphNameForSpell(spellID);
+        return glyphID
+    end
+    API.GetGlyphIDForSpell = GetGlyphIDForSpell;
+
+    local GetSpellInfo = GetSpellInfo;
+
+    local function GetSpellName(spellID)
+        if spellID and DoesSpellExist(spellID) then
+            local name = GetSpellInfo(spellID);
+            return name
+        else
+            if spellID then
+                return "Unknown Spell: "..spellID
+            else
+                return "Unknown Spell"
+            end
+        end
+    end
+    API.GetSpellName = GetSpellName;
 end
 
 do  -- Time -- Date
@@ -3470,7 +3522,7 @@ do  -- System
         API.GetMouseFocus = AlwaysNil;
     end
 
-    local function TriggerQuestObjectiveTrackerDirty()
+    --[[ local function TriggerQuestObjectiveTrackerDirty()
         --(Retail Only) Trigger a "SUPER_TRACKING_CHANGED" so QuestObjectiveTracker removes its popups after QuestObjectiveTrackerMixin:OnEvent
         if not C_SuperTrack then return end;
 
@@ -3498,8 +3550,14 @@ do  -- System
         else
             C_Map.ClearUserWaypoint();
         end
-    end
-    API.TriggerQuestObjectiveTrackerDirty = TriggerQuestObjectiveTrackerDirty;
+    end --]]
+
+	-- 3.3.5: create client compatibility
+	local function TriggerQuestObjectiveTrackerDirty()
+    	-- Not supported in 3.3.5a
+    	return;
+	end
+	API.TriggerQuestObjectiveTrackerDirty = TriggerQuestObjectiveTrackerDirty;
 
     local function RemoveQuestObjectiveTrackerQuestPopUp(questID)
         --QuestObjectiveTracker:RemoveAutoQuestPopUp() isn't safe
@@ -3552,9 +3610,16 @@ do  -- System
     end
 end
 
-do  -- Zone -- Location -- Area
+--[[ do  -- Zone -- Location -- Area
     local function GetZoneName(areaID)
         return C_Map.GetAreaInfo(areaID)
+    end
+    API.GetZoneName = GetZoneName;
+end --]]
+
+do  -- 3.3.5: Zone -- Location -- Area (3.3.5 Compatibility)
+    local function GetZoneName(areaID)
+        return GetRealZoneText() or "";
     end
     API.GetZoneName = GetZoneName;
 end
