@@ -4,8 +4,10 @@ local TooltipFrame = addon.SharedTooltip;
 local Clamp = API.Clamp;
 local Lerp = API.ClampLerp;
 
-local GetFriendshipReputation = C_GossipInfo.GetFriendshipReputation;
-local GetFriendshipReputationRanks = C_GossipInfo.GetFriendshipReputationRanks;
+-- [3.3.5a Port]: C_GossipInfo.GetFriendshipReputation does not exist in WotLK. 
+-- Friendship/Bestiary reputation mechanisms need to be stubbed or mapped to standard factions if applicable.
+local GetFriendshipReputation = nil;
+local GetFriendshipReputationRanks = nil;
 
 local FRAME_SIZE = 52;
 local FriendshipBar = CreateFrame("Frame");
@@ -25,11 +27,13 @@ local RAD_FILL4_BEGIN = RAD_FILL3_END;
 local RAD_FILL4_END = math.pi * (-5/4);
 
 
+-- [3.3.5a Port]: Texture masking is unsupported in WotLK. Replace with a dummy or standard texture behavior.
 local function CreateTextureMask(frame, maskedTexture, layer)
-    local mask = frame:CreateMaskTexture(nil, layer);
-    maskedTexture:AddMaskTexture(mask);
-    mask:SetTexture("Interface/AddOns/DialogueUI/Art/BasicShapes/Mask-RightWhite", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE");
-    mask:SetSize(26, 26);
+    -- Dummy implementation for WotLK since masks are not supported
+    local mask = {};
+    function mask:SetSize() end
+    function mask:SetPoint() end
+    function mask:SetRotation() end
     return mask
 end
 
@@ -129,28 +133,12 @@ function FriendshipBar:Init()
     self.Surface = Surface;
     tinsert(self.textures, Surface);
 
-    local FillMask = Container:CreateMaskTexture(nil, fillLayer, nil, 4);
-    Surface:AddMaskTexture(FillMask);
-    FillMask:SetTexture("Interface/AddOns/DialogueUI/Art/Theme_Shared/Mask-HeartFill", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE");
-    FillMask:SetSize(69, 69);
-    FillMask:SetPoint("CENTER", Container, "CENTER", 0, 0);
-
-
-    --[[
-    local MaxLevelText = Container:CreateFontString(nil, "OVERLAY", "MirageFont_Serif_10_DarkBrown", 2);
-    MaxLevelText:SetJustifyH("CENTER");
-    MaxLevelText:SetJustifyV("MIDDLE");
-    MaxLevelText:SetPoint("CENTER", Container, "CENTER", 8.5, 4.8);
-    MaxLevelText:SetText(5);
-    self.MaxLevelText = MaxLevelText;
-
-    local CurrentLevelText = Container:CreateFontString(nil, "OVERLAY", "MirageFont_Serif_18_DarkBrown", 3);
-    CurrentLevelText:SetJustifyH("CENTER");
-    CurrentLevelText:SetJustifyV("MIDDLE");
-    CurrentLevelText:SetPoint("CENTER", Container, "CENTER", -8.5, 3);
-    CurrentLevelText:SetText(1);
-    self.CurrentLevelText = CurrentLevelText;
-    --]]
+    -- [3.3.5a Port]: MaskTextures are not available in 3.3.5a
+    -- local FillMask = Container:CreateMaskTexture(nil, fillLayer, nil, 4);
+    -- Surface:AddMaskTexture(FillMask);
+    -- FillMask:SetTexture("Interface/AddOns/DialogueUI/Art/Theme_Shared/Mask-HeartFill", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE");
+    -- FillMask:SetSize(69, 69);
+    -- FillMask:SetPoint("CENTER", Container, "CENTER", 0, 0);
 
     local CurrentLevelText = Container:CreateTexture(nil, "OVERLAY", nil, 5);
     CurrentLevelText:SetPoint("CENTER", Container, "CENTER", -8, 3);
@@ -205,85 +193,31 @@ do
 end
 
 function FriendshipBar:SetRatio(ratio)
-    local ratio1 = ratio/FILL1_RATIO;
-    local ratio2 = (ratio - FILL1_RATIO)/FILL2_RATIO;
-    local ratio3 = (ratio - FILL1_RATIO - FILL2_RATIO)/FILL3_RATIO;
-    local ratio4 = (ratio - FILL1_RATIO - FILL2_RATIO - FILL3_RATIO)/FILL4_RATIO;
+    -- [3.3.5a Port]: Rotation methods are stubbed for WotLK compatibility
+    -- self.Mask1:SetRotation(rad1);
+    -- self.Mask2:SetRotation(rad2);
+    -- self.Mask3:SetRotation(rad3);
+    -- self.Mask4:SetRotation(rad4);
 
-    local rad1 = Lerp(RAD_FILL1_BEGIN, RAD_FILL1_END, ratio1);
-    local rad2 = Lerp(RAD_FILL2_BEGIN, RAD_FILL2_END, ratio2);
-    local rad3 = Lerp(RAD_FILL3_BEGIN, RAD_FILL3_END, ratio3);
-    local rad4 = Lerp(RAD_FILL4_BEGIN, RAD_FILL4_END, ratio4);
-
-    self.Mask1:SetRotation(rad1);
-    self.Mask2:SetRotation(rad2);
-    self.Mask3:SetRotation(rad3);
-    self.Mask4:SetRotation(rad4);
-
-    local surfRad, surfOffsetX, surfOffsetY;
-    if ratio4 > 0 then
-        surfRad = rad4;
-        surfOffsetX = -FRAME_SIZE/6;
-        surfOffsetY = FRAME_SIZE/6*0.75;
-    elseif ratio3 > 0 then
-        surfRad = rad3;
-        surfOffsetX = 0;
-        surfOffsetY = 6.4;
-    elseif ratio2 > 0 then
-        surfRad = rad2;
-        surfOffsetX = 0;
-        surfOffsetY = 6.4;
-    else
-        surfRad = rad1;
-        surfOffsetX = FRAME_SIZE/6;
-        surfOffsetY = FRAME_SIZE/6*0.75;
-    end
-
-    self.Surface:ClearAllPoints();
-    self.Surface:SetPoint("CENTER", self, "CENTER", surfOffsetX, surfOffsetY);
-    self.Surface:SetRotation(surfRad);
+    -- ...
+    
+    -- self.Surface:SetRotation(surfRad);
     self.Surface:SetShown(ratio > 0.01 and ratio < 0.995);
 end
 
 function FriendshipBar:Update(factionID)
+    -- [3.3.5a Port]: Friendship system is absent in WotLK 3.3.5a. Guard against missing API.
+    if not GetFriendshipReputation then
+        if self.Container then
+            self.Container:Hide();
+        end
+        return
+    end
+
     local repInfo = GetFriendshipReputation and GetFriendshipReputation(factionID or 0);
 	if repInfo and repInfo.friendshipFactionID and  repInfo.friendshipFactionID > 0 then
-        if self.Init then
-            self:Init();
-        end
-
-		self.friendshipFactionID = repInfo.friendshipFactionID;
-        local fillRatio;
-
-        if repInfo.nextThreshold then
-			local current = repInfo.standing - repInfo.reactionThreshold;
-			local max = repInfo.nextThreshold - repInfo.reactionThreshold;
-            if max == 0 then
-                fillRatio = 1;
-            else
-                fillRatio = current / max;
-            end
-		else
-			fillRatio = 1;
-		end
-
-        self:SetRatio(fillRatio);
-
-        local rankInfo = GetFriendshipReputationRanks(repInfo.friendshipFactionID);
-
-        --self.CurrentLevelText:SetText(rankInfo.currentLevel);
-        --self.MaxLevelText:SetText(rankInfo.maxLevel);
-        SetTextureNumber(self.CurrentLevelText, rankInfo.currentLevel);
-        SetTextureNumber(self.MaxLevelText, rankInfo.maxLevel);
-
-        self:RegisterEvent("UPDATE_FACTION");
-		self.Container:Show();
-
-	elseif self.Container then
-        self.friendshipFactionID = nil;
-        self:UnregisterEvent("UPDATE_FACTION");
-		self.Container:Hide();
-	end
+        -- (removed update logic)
+    end
 end
 
 function FriendshipBar:OnUpdate(elapsed)
