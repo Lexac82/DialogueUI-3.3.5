@@ -3,11 +3,18 @@
     <Script file="API.lua"/>
     <Script file="Code\QuestAreaTrigger.lua"/>
 
-    <Actor name="DUIUtilityActorTemplate" mixin="DUIUtilityActorMixin" virtual="true">
-        <Scripts>
-            <OnModelLoaded method="OnModelLoaded"/>
-        </Scripts>
-    </Actor>
+    <!-- 
+      Note: <Actor> and model scene templates are not supported in 3.3.5a 
+      and have been removed to prevent XML parsing errors. 
+    -->
 
-    <Frame name="DUISetPropagateKeyboardInputTemplate" propagateKeyboardInput="true" virtual="true"/>
+    <Frame name="DUISetPropagateKeyboardInputTemplate" virtual="true">
+        <Scripts>
+            <OnLoad>
+                if self.SetPropagateKeyboardInput then
+                    self:SetPropagateKeyboardInput(true);
+                end
+            </OnLoad>
+        </Scripts>
+    </Frame>
 </Ui>
