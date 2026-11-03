@@ -167,10 +167,11 @@ function Clipboard:Init()
     local bg = self:CreateTexture(nil, "BACKGROUND");
     bg:SetAllPoints(true);
     local corner = 16;
-    bg:SetTextureSliceMargins(corner, corner, corner, corner);
-    bg:SetTextureSliceMode(1);
+    -- [3.3.5a Port]: Texture slicing is unsupported in WotLK, remove slicing and scale functions
+    -- bg:SetTextureSliceMargins(corner, corner, corner, corner);
+    -- bg:SetTextureSliceMode(1);
     bg:SetTexture("Interface/AddOns/DialogueUI/Art/Theme_Shared/ClipboardBackground.png");
-    API.UpdateTextureSliceScale(bg);
+    -- API.UpdateTextureSliceScale(bg);
 
     local ScrollBar = addon.CreateScrollBar(self);
     self.ScrollBar = ScrollBar;
@@ -243,35 +244,22 @@ function Clipboard:CloseIfShown()
 end
 
 function Clipboard:OnShow()
-    self:RegisterEvent("GLOBAL_MOUSE_DOWN");
-    self:RegisterEvent("GLOBAL_MOUSE_UP");
+    -- [3.3.5a Port]: Global mouse events do not exist in 3.3.5a, remove registration
+    -- self:RegisterEvent("GLOBAL_MOUSE_DOWN");
+    -- self:RegisterEvent("GLOBAL_MOUSE_UP");
 end
 Clipboard:SetScript("OnShow", Clipboard.OnShow);
 
 function Clipboard:OnEvent(event, ...)
-    if event == "GLOBAL_MOUSE_DOWN" then
-        if self:IsMouseOver() then
-            if self.EditBox:IsMouseOver() then
-                self:StartCursorScrolling();
-            end
-        else
-            for i, button in ipairs(CopyTextButtons) do
-                if button:IsMouseOver() then
-                    return
-                end
-            end
-            self:Hide();
-        end
-    elseif event == "GLOBAL_MOUSE_UP" then
-        self:StopCursorScrolling();
-    end
+    -- Event handler logic adjusted if needed
 end
-Clipboard:SetScript("OnEvent", Clipboard.OnEvent);
+Clipboard:SetScript("OnEvent", nil);
 
 function Clipboard:OnHide()
     self.sender = nil;
-    self:UnregisterEvent("GLOBAL_MOUSE_DOWN");
-    self:UnregisterEvent("GLOBAL_MOUSE_UP");
+    -- [3.3.5a Port]: Remove global mouse event unregistration
+    -- self:UnregisterEvent("GLOBAL_MOUSE_DOWN");
+    -- self:UnregisterEvent("GLOBAL_MOUSE_UP");
     self.EditBox:SetText("");
     self.EditBox:ClearHighlightText();
     self:StopCursorScrolling();
