@@ -32,11 +32,16 @@ local type = type;
 local KeyboardControl = CreateFrame("Frame");
 KeyboardControl:Hide();
 KeyboardControl:SetFrameStrata("TOOLTIP");
-KeyboardControl:SetFixedFrameStrata(true);
+-- [3.3.5a Port]: SetFixedFrameStrata does not exist in WotLK
+-- KeyboardControl:SetFixedFrameStrata(true);
 addon.KeyboardControl = KeyboardControl;
 
-KeyboardControl.combatFrame = CreateFrame("Frame", nil, KeyboardControl, "DUISetPropagateKeyboardInputTemplate");   --"combatFrame" doesn't change KeyProgation dynamically based on input
---KeyboardControl.combatFrame:SetPropagateKeyboardInput(true);
+-- [3.3.5a Port]: Removed modern template "DUISetPropagateKeyboardInputTemplate"
+KeyboardControl.combatFrame = CreateFrame("Frame", nil, KeyboardControl);
+
+-- [3.3.5a Port]: Stub SetPropagateKeyboardInput as it is not supported in 3.3.5a
+KeyboardControl.SetPropagateKeyboardInput = function(self, propagate) end
+KeyboardControl.combatFrame.SetPropagateKeyboardInput = function(self, propagate) end
 
 function KeyboardControl:ResetKeyActions()
     self.keyActions = {};
@@ -272,9 +277,10 @@ function KeyboardControl:SetParentFrame(frame, inCombat)
 
     if listener then
         listener:SetScript("OnKeyDown", self.OnKeyDown);
-        listener:SetScript("OnGamePadButtonDown", self.OnGamePadButtonDown);
-        listener:SetScript("OnGamePadButtonUp", self.OnGamePadButtonUp)
-        listener:EnableGamePadButton(true);
+        -- [3.3.5a Port]: Gamepad script handlers and API are unavailable in 3.3.5a
+        -- listener:SetScript("OnGamePadButtonDown", self.OnGamePadButtonDown);
+        -- listener:SetScript("OnGamePadButtonUp", self.OnGamePadButtonUp);
+        -- listener:EnableGamePadButton(true);
         listener:EnableKeyboard(true);
     end
 end
@@ -283,13 +289,14 @@ function KeyboardControl:StopListeningKeys()
     self:SetScript("OnKeyDown", nil);
     self.combatFrame:SetScript("OnKeyDown", nil);
 
-    self:SetScript("OnGamePadButtonDown", nil);
-    self.combatFrame:SetScript("OnGamePadButtonDown", nil);
-    self:SetScript("OnGamePadButtonUp", nil);
-    self.combatFrame:SetScript("OnGamePadButtonUp", nil);
+    -- [3.3.5a Port]: Remove gamepad script un-assignments and API calls for 3.3.5a
+    -- self:SetScript("OnGamePadButtonDown", nil);
+    -- self.combatFrame:SetScript("OnGamePadButtonDown", nil);
+    -- self:SetScript("OnGamePadButtonUp", nil);
+    -- self.combatFrame:SetScript("OnGamePadButtonUp", nil);
 
-    self:EnableGamePadButton(false);
-    self.combatFrame:EnableGamePadButton(false);
+    -- self:EnableGamePadButton(false);
+    -- self.combatFrame:EnableGamePadButton(false);
 
     self:EnableKeyboard(false);
     self.combatFrame:EnableKeyboard(false);
