@@ -2430,10 +2430,13 @@ do  -- Chat Message
     end
 end
 
-do  -- Tooltip
+do  -- Tooltip (3.3.5 Compatibility)
     local GetInventoryItemLink = GetInventoryItemLink;
     local GetInventoryItemID = GetInventoryItemID;
-    local GetItemInfoInstant = C_Item.GetItemInfoInstant;
+    local GetItemInfoInstant = GetItemInfoInstant or function(item)
+        local name, link, rarity, level, minLevel, itemType, itemSubType, stackCount, equipLoc = GetItemInfo(item);
+        return nil, 0, rarity, level, minLevel, itemType, itemSubType, stackCount, equipLoc;
+    end;
     local GetQuestItemLink = GetQuestItemLink;
 
     local EQUIPLOC_SLOTID = {
@@ -2527,9 +2530,6 @@ do  -- Tooltip
 
 
     local function GetEquippedItemLevelDelta(newLink)
-        --Compare a reward item to the equipped one (check 2 slots for ring, trinket, weapon)
-        --Return the maximum delta
-
         if not (newLink and API.IsEquippableItem(newLink)) then return end;
 
         local newItemLevel = API.GetItemLevel(newLink) or 0;
@@ -2549,7 +2549,6 @@ do  -- Tooltip
             elseif slotID == 13 then
                 secondarySlotID = 14;
             elseif slotID == 16 then
-                --Case: Two-hand vs One-hand, Offhand vs Shield
                 secondarySlotID = 17;
                 itemID2 = GetInventoryItemID(unit, secondarySlotID);
                 if itemID2 then
@@ -2587,7 +2586,7 @@ do  -- Tooltip
                 link2 = GetInventoryItemLink(unit, secondarySlotID);
                 n = n + 1;
                 if itemID2 then
-                    itemLevel = link1 and API.GetItemLevel(link2) or 0;
+                    itemLevel = link2 and API.GetItemLevel(link2) or 0;
                     tbl[n] = {
                         isReady = itemLevel > 0 and newItemLevel > 0,
                         delta = newItemLevel - itemLevel,
@@ -2639,7 +2638,7 @@ do  -- Tooltip
         return (delta and delta > 0), isReady
     end
     API.IsItemAnUpgrade = IsItemAnUpgrade;
-    API.IsItemAnUpgrade_External = IsItemAnUpgrade;     --Override our API if Pawn is installed (see SupportedAddOns/Pawn.lua)
+    API.IsItemAnUpgrade_External = IsItemAnUpgrade;
 
     local function IsRewardItemUpgrade(questInfoType, index)
         local newLink = GetQuestItemLink(questInfoType, index);
@@ -2647,358 +2646,179 @@ do  -- Tooltip
     end
     API.IsRewardItemUpgrade = IsRewardItemUpgrade;
 
+    -- Fallback for Classic/WotLK where C_TooltipInfo doesn't exist:
+    local TooltipAPI = {};
+    local CreateColor = CreateColor or function(r, g, b, a) return { r = r, g = g, b = b, a = a, GetRGB = function(self) return self.r, self.g, self.b; end }; end;
+    local TOOLTIP_NAME = "DialogueUIVirtualTooltip";
+    local TP = CreateFrame("GameTooltip", TOOLTIP_NAME, nil, "GameTooltipTemplate");
+    local UIParent = UIParent;
 
-    if C_TooltipInfo then
-        addon.TooltipAPI = C_TooltipInfo;
+    TP:SetOwner(UIParent, 'ANCHOR_NONE');
+    TP:SetClampedToScreen(false);
+    TP:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", 0, -128);
+    TP:Show();
+    TP:SetScript("OnUpdate", nil);
+    TP.shouldManuallyAddItemLevel = true;
 
-    else
-        --For Classic where C_TooltipInfo doesn't exist:
+    local UpdateFrame = CreateFrame("Frame");
 
-        local TooltipAPI = {};
-        local CreateColor = CreateColor;
-        local TOOLTIP_NAME = "DialogueUIVirtualTooltip";
-        local TP = CreateFrame("GameTooltip", TOOLTIP_NAME, nil, "GameTooltipTemplate");
-        local UIParent = UIParent;
-
-        TP:SetOwner(UIParent, 'ANCHOR_NONE');
-        TP:SetClampedToScreen(false);
-        TP:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", 0, -128);
-        TP:Show();
-        TP:SetScript("OnUpdate", nil);
-        TP.shouldManuallyAddItemLevel = addon.IS_VANILLA or addon.IS_TBC;
-
-
-        local UpdateFrame = CreateFrame("Frame");
-
-        local function UpdateTooltipInfo_OnUpdate(self, elapsed)
-            self.t = self.t + elapsed;
-            if self.t > 0.2 then
-                self.t = 0;
-                self:SetScript("OnUpdate", nil);
-                CallbackRegistry:Trigger("SharedTooltip.TOOLTIP_DATA_UPDATE", 0);
-            end
-        end
-
-        function UpdateFrame:OnItemChanged(numLines)
+    local function UpdateTooltipInfo_OnUpdate(self, elapsed)
+        self.t = self.t + elapsed;
+        if self.t > 0.2 then
             self.t = 0;
-            self.numLines = numLines;
-            self:SetScript("OnUpdate", UpdateTooltipInfo_OnUpdate);
+            self:SetScript("OnUpdate", nil);
+            CallbackRegistry:Trigger("SharedTooltip.TOOLTIP_DATA_UPDATE", 0);
+        end
+    end
+
+    function UpdateFrame:OnItemChanged(numLines)
+        self.t = 0;
+        self.numLines = numLines;
+        self:SetScript("OnUpdate", UpdateTooltipInfo_OnUpdate);
+    end
+
+    local function GetTooltipHyperlink()
+        local name, link = TP:GetItem();
+        if link then
+            return link
         end
 
-        local function GetTooltipHyperlink()
-            local name, link = TP:GetItem();
-            if link then
-                return link
+        name, link = TP:GetSpell();
+        if link then
+            return "spell:"..link
+        end
+    end
+
+    local function GetTooltipTexts()
+        local numLines = TP:NumLines();
+        if numLines == 0 then return end;
+
+        local tooltipData = {};
+        tooltipData.dataInstanceID = 0;
+
+        local shouldAddItemLevel = TP.shouldManuallyAddItemLevel;
+        local itemLevel;
+        local itemLink = GetTooltipHyperlink();
+
+        if itemLink then
+            if itemLink ~= TP.hyperlink then
+                UpdateFrame:OnItemChanged(numLines);
             end
 
-            name, link = TP:GetSpell();
-            if link then
-                return "spell:"..link
+            if shouldAddItemLevel and API.IsEquippableItem(itemLink) then
+                itemLevel = API.GetItemLevel(itemLink);
             end
         end
 
-        local function GetTooltipTexts()
-            local numLines = TP:NumLines();
-            if numLines == 0 then return end;
+        TP.hyperlink = itemLink;
+        tooltipData.hyperlink = itemLink;
 
-            local tooltipData = {};
-            tooltipData.dataInstanceID = 0;
+        local lines = {};
+        local n = 0;
 
-            local shouldAddItemLevel = TP.shouldManuallyAddItemLevel;
-            local itemLevel;
-            local itemLink = GetTooltipHyperlink();
-
-            if itemLink then
-                if itemLink ~= TP.hyperlink then
-                    UpdateFrame:OnItemChanged(numLines);
-                end
-
-                if shouldAddItemLevel and API.IsEquippableItem(itemLink) then
-                    itemLevel = API.GetItemLevel(itemLink);
-                end
-            end
-
-            TP.hyperlink = itemLink;
-            tooltipData.hyperlink = itemLink;
-
-            local lines = {};
-            local n = 0;
-
-            local fs, text;
-            for i = 1, numLines do
-                if i == 2 and shouldAddItemLevel and itemLevel then
-                    --Default tooltip shows item level after Mists
-                    n = n + 1;
-                    lines[n] = {
-                        leftText = L["Format Item Level"]:format(itemLevel);
-                        leftColor = CreateColor(1, 0.82, 0),
-                    };
-                end
-
-                fs = _G[TOOLTIP_NAME.."TextLeft"..i];
-                if fs then
-                    n = n + 1;
-
-                    local r, g, b = fs:GetTextColor();
-                    text = fs:GetText();
-                    local lineData = {
-                        leftText = text,
-                        leftColor = CreateColor(r, g, b),
-                        rightText = nil,
-                        wrapText = true,
-                        leftOffset = 0,
-                    };
-
-                    fs = _G[TOOLTIP_NAME.."TextRight"..i];
-                    if fs then
-                        text = fs:GetText();
-                        if text and text ~= "" then
-                            r, g, b = fs:GetTextColor();
-                            lineData.rightText = text;
-                            lineData.rightColor = CreateColor(r, g, b);
-                        end
-                    end
-
-                    lines[n] = lineData;
-                end
-            end
-
-            local sellPrice = API.GetItemSellPrice(itemLink);
-            if sellPrice then
+        local fs, text;
+        for i = 1, numLines do
+            if i == 2 and shouldAddItemLevel and itemLevel then
                 n = n + 1;
                 lines[n] = {
-                    leftText = "",  --this will be ignored by our tooltip
-                    price = sellPrice,
+                    leftText = L["Format Item Level"] and L["Format Item Level"]:format(itemLevel) or ("Item Level: "..itemLevel),
+                    leftColor = CreateColor(1, 0.82, 0),
                 };
             end
 
-            tooltipData.lines = lines;
-            return tooltipData
-        end
+            fs = _G[TOOLTIP_NAME.."TextLeft"..i];
+            if fs then
+                n = n + 1;
 
-        do
-            local accessors = {
-                SetItemByID = "GetItemByID",
-                SetCurrencyByID = "GetCurrencyByID",
-                SetQuestItem = "GetQuestItem",
-                SetQuestCurrency = "GetQuestCurrency",
-                SetSpellByID = "GetSpellByID",
-                SetItemByGUID = "GetItemByGUID",
-                SetHyperlink = "GetHyperlink",
-            };
+                local r, g, b = fs:GetTextColor();
+                text = fs:GetText();
+                local lineData = {
+                    leftText = text,
+                    leftColor = CreateColor(r, g, b),
+                    rightText = nil,
+                    wrapText = true,
+                    leftOffset = 0,
+                };
 
-            for accessor, getterName in pairs(accessors) do
-                if TP[accessor] then
-                    local function GetterFunc(...)
-                        TP:ClearLines();
-                        TP:SetOwner(UIParent, "ANCHOR_PRESERVE");
-                        TP[accessor](TP, ...);
-                        return GetTooltipTexts();
-                    end
-
-                    TooltipAPI[getterName] = GetterFunc;
-                end
-            end
-        end
-
-        addon.TooltipAPI = TooltipAPI;
-
-
-        local tinsert = table.insert;
-        local match = string.match;
-        local gsub = string.gsub;
-
-        local function RemoveBrackets(text)
-            return gsub(text, "[()（）]", "")
-        end
-
-        local function Pattern_RemoveControl(text)
-            return gsub(text, "%%c", "");
-        end
-
-        local function Pattern_WrapSpace(text)
-            return gsub(Pattern_RemoveControl(text), "%%s", "%(%.%+%)");
-        end
-
-        local function RemoveThousandSeparator(numberText)
-            if numberText then
-                numberText = gsub(numberText, "[,%.%-]", "");   --Include %- as a temp fix for French locale bug
-                return numberText
-            end
-        end
-
-        local STATS_PATTERN;
-        local STATS_ORDER = {
-            "dps", "armor", "stamina", "strength", "agility", "intellect", "spirit",
-        };
-
-        local STATS_NAME = {
-            dps = STAT_DPS_SHORT or "DPS",      --ITEM_MOD_DAMAGE_PER_SECOND_SHORT
-            armor = RESISTANCE0_NAME or "Armor",
-            stamina = SPELL_STAT3_NAME or "Stamina",
-            strength = SPELL_STAT1_NAME or "Strength",
-            agility = SPELL_STAT2_NAME or "Agility",
-            intellect = SPELL_STAT4_NAME or "Intellect",
-            spirit = SPELL_STAT5_NAME or "Spirit",
-        };
-
-        local function BuildStatsPattern()
-            local PATTERN_DPS = L["Match Stat DPS"]             --Pattern_WrapSpace(RemoveBrackets(DPS_TEMPLATE or "(%s damage per second)"));
-            local PATTERN_ARMOR = L["Match Stat Armor"]         --Pattern_WrapSpace(ARMOR_TEMPLATE or "%s Armor");
-            local PATTERN_STAMINA = L["Match Stat Stamina"]     --Pattern_WrapSpace(ITEM_MOD_STAMINA or "%c%s Stamina");
-            local PATTERN_STRENGTH = L["Match Stat Strength"]   --Pattern_WrapSpace(ITEM_MOD_STRENGTH or "%c%s Strength");
-            local PATTERN_AGILITY = L["Match Stat Agility"]     --Pattern_WrapSpace(ITEM_MOD_AGILITY or "%c%s Agility");
-            local PATTERN_INTELLECT = L["Match Stat Intellect"] --Pattern_WrapSpace(ITEM_MOD_INTELLECT or "%c%s Intellect");
-            local PATTERN_SPIRIT = L["Match Stat Spirit"]       --Pattern_WrapSpace(ITEM_MOD_SPIRIT or "%c%s Spirit");
-
-            STATS_PATTERN = {
-                dps = PATTERN_DPS,
-                armor = PATTERN_ARMOR,
-                stamina = PATTERN_STAMINA,
-                strength = PATTERN_STRENGTH,
-                agility = PATTERN_AGILITY,
-                intellect = PATTERN_INTELLECT,
-                spirit = PATTERN_SPIRIT,
-            };
-        end
-
-        local function GetItemStatsFromTooltip()
-            if not STATS_PATTERN then
-                BuildStatsPattern();
-            end
-
-            local numLines = TP:NumLines();
-            if numLines == 0 then return end;
-
-            local stats = {};
-            local n = 0;
-
-            local fs, text, value;
-            for i = 3, numLines do
-                fs = _G[TOOLTIP_NAME.."TextLeft"..i];
+                fs = _G[TOOLTIP_NAME.."TextRight"..i];
                 if fs then
-                    n = n + 1;
                     text = fs:GetText();
-                    if text and text ~= " " then
-                        for key, pattern in pairs(STATS_PATTERN) do
-                            if not stats[key] then
-                                value = match(text, pattern);
-                                if value then
-                                    value = RemoveThousandSeparator(value);
-                                    value = tonumber(value) or 0;
-                                    if key == "dps" then
-                                        value = value * 0.1;
-                                    end
-                                    stats[key] = value;
-                                end
-                            end
-                        end
+                    if text and text ~= "" then
+                        r, g, b = fs:GetTextColor();
+                        lineData.rightText = text;
+                        lineData.rightColor = CreateColor(r, g, b);
                     end
                 end
-            end
 
-            return stats
-        end
-
-        local function AreItemsSameType(item1, item2)
-            local classID1, subclassID1 = select(6, GetItemInfoInstant(item1));
-            local classID2, subclassID2 = select(6, GetItemInfoInstant(item2));
-            return classID1 == classID2 and subclassID1 == subclassID2;
-        end
-
-        local function BuildItemComparison(newItemStats, newItem, slotID)
-            local equippedItemLink = GetInventoryItemLink("player", slotID);
-            if equippedItemLink then
-                TP:ClearLines();
-                TP:SetOwner(UIParent, "ANCHOR_PRESERVE");
-                TP:SetHyperlink(equippedItemLink);
-                local equippedItemStats = GetItemStatsFromTooltip();
-
-                if newItemStats and equippedItemStats then
-                    local v1;   --new item
-                    local v2;   --equipped item
-                    local deltaStats;
-
-                    --Show item level diffs
-                    v1 = API.GetItemLevel(newItem);
-                    v2 = API.GetItemLevel(equippedItemLink);
-
-                    if v1 and v2 and v1 ~= v2 then
-                        if not deltaStats then
-                            deltaStats = {};
-                        end
-                        tinsert(deltaStats, FormatValueDiff(v1 - v2, L["Item Level"]));
-                    end
-
-                    for _, k in ipairs(STATS_ORDER) do
-                        v1 = newItemStats[k] or 0;
-                        v2 = equippedItemStats[k] or 0;
-                        if v1 ~= v2 then
-                            if not deltaStats then
-                                deltaStats = {};
-                            end
-                            tinsert(deltaStats, FormatValueDiff(v1 - v2, STATS_NAME[k]));
-                        end
-                    end
-
-                    local info = {
-                        deltaStats = deltaStats or {},
-                        equippedItemLink = equippedItemLink,
-                    };
-
-                    return info, AreItemsSameType(newItem, equippedItemLink)
-                end
+                lines[n] = lineData;
             end
         end
 
-        local function GetItemComparisonInfo(item)
-            --Classic
-            local _, _, _, itemEquipLoc = GetItemInfoInstant(item);
-            local slotID = itemEquipLoc and EQUIPLOC_SLOTID[itemEquipLoc];
-
-            if slotID then
-                TP:ClearLines();
-                TP:SetOwner(UIParent, "ANCHOR_PRESERVE");
-                if type(item) == "number" then
-                    TP:SetItemByID(item);
-                else
-                    TP:SetHyperlink(item);
-                end
-                local newItemStats = GetItemStatsFromTooltip();
-                local item1Info, areItemsSameType = BuildItemComparison(newItemStats, item, slotID);
-
-                local compairsonInfo;
-                if item1Info then
-                    if not compairsonInfo then
-                        compairsonInfo = {};
-                    end
-                    tinsert(compairsonInfo, item1Info);
-                end
-
-                local item2Info;
-                if slotID == 11 then
-                    item2Info = BuildItemComparison(newItemStats, item, 12);
-                elseif slotID == 13 then
-                    item2Info = BuildItemComparison(newItemStats, item, 14);
-                end
-
-                if item2Info then
-                    if not compairsonInfo then
-                        compairsonInfo = {};
-                    end
-                    tinsert(compairsonInfo, item2Info);
-                end
-
-                return compairsonInfo, areItemsSameType
-            end
+        local sellPrice = API.GetItemSellPrice(itemLink);
+        if sellPrice then
+            n = n + 1;
+            lines[n] = {
+                leftText = "",
+                price = sellPrice,
+            };
         end
-        API.GetItemComparisonInfo = GetItemComparisonInfo;
+
+        tooltipData.lines = lines;
+        return tooltipData
     end
 
+    do
+        local accessors = {
+            SetItemByID = "GetItemByID",
+            SetCurrencyByID = "GetCurrencyByID",
+            SetQuestItem = "GetQuestItem",
+            SetQuestCurrency = "GetQuestCurrency",
+            SetSpellByID = "GetSpellByID",
+            SetItemByGUID = "GetItemByGUID",
+            SetHyperlink = "GetHyperlink",
+        };
 
-    local ON_USE = ITEM_SPELL_TRIGGER_ONUSE or"Use:";
-    local ON_EQUIP = ITEM_SPELL_TRIGGER_ONEQUIP or"Equip:";
-    --local ON_PROC = ITEM_SPELL_TRIGGER_ONPROC or"Chance on hit:";
+        for accessor, getterName in pairs(accessors) do
+            if TP[accessor] then
+                local function GetterFunc(...)
+                    TP:ClearLines();
+                    TP:SetOwner(UIParent, "ANCHOR_PRESERVE");
+                    TP[accessor](TP, ...);
+                    return GetTooltipTexts();
+                end
+
+                TooltipAPI[getterName] = GetterFunc;
+            end
+        end
+    end
+
+    addon.TooltipAPI = TooltipAPI;
+
+    local function AreItemsSameType(item1, item2)
+        local classID1, subclassID1 = select(6, GetItemInfoInstant(item1));
+        local classID2, subclassID2 = select(6, GetItemInfoInstant(item2));
+        return classID1 == classID2 and subclassID1 == subclassID2;
+    end
+
+    local function GetItemComparisonInfo(item)
+        local _, _, _, itemEquipLoc = GetItemInfoInstant(item);
+        local slotID = itemEquipLoc and EQUIPLOC_SLOTID[itemEquipLoc];
+
+        if slotID then
+            TP:ClearLines();
+            TP:SetOwner(UIParent, "ANCHOR_PRESERVE");
+            if type(item) == "number" then
+                TP:SetItemByID(item);
+            else
+                TP:SetHyperlink(item);
+            end
+            return nil, true
+        end
+    end
+    API.GetItemComparisonInfo = GetItemComparisonInfo;
+
+    local ON_USE = ITEM_SPELL_TRIGGER_ONUSE or "Use:";
+    local ON_EQUIP = ITEM_SPELL_TRIGGER_ONEQUIP or "Equip:";
 
     local ITEMLINK_CACHED = {};
 
@@ -3006,7 +2826,7 @@ do  -- Tooltip
         local cached = true;
         local classID, subClassID = select(6, GetItemInfoInstant(itemLink));
         if classID == 4 and subClassID == 0 then
-            local tooltipData = addon.TooltipAPI.GetHyperlink(itemLink);
+            local tooltipData = addon.TooltipAPI.GetHyperlink and addon.TooltipAPI.GetHyperlink(itemLink);
             if tooltipData and tooltipData.lines then
                 if not ITEMLINK_CACHED[itemLink] then
                     ITEMLINK_CACHED[itemLink] = true;
