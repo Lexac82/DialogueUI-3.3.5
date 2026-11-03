@@ -581,7 +581,7 @@ do  -- NPC Interaction
     end
 
 
-    local IsInteractingWithNpcOfType = C_PlayerInteractionManager.IsInteractingWithNpcOfType;
+    --[[ local IsInteractingWithNpcOfType = C_PlayerInteractionManager.IsInteractingWithNpcOfType;
     local TYPE_GOSSIP = Enum.PlayerInteractionType and Enum.PlayerInteractionType.Gossip or 3;
     local TYPE_QUEST_GIVER = Enum.PlayerInteractionType and Enum.PlayerInteractionType.QuestGiver or 4;
 
@@ -598,12 +598,31 @@ do  -- NPC Interaction
     local function IsInteractingWithDialogNPC()
         return (IsInteractingWithNpcOfType(TYPE_GOSSIP) or IsInteractingWithNpcOfType(TYPE_QUEST_GIVER))
     end
-    API.IsInteractingWithDialogNPC = IsInteractingWithDialogNPC;
+    API.IsInteractingWithDialogNPC = IsInteractingWithDialogNPC; --]]
+
+	-- 3.3.5: Fallback for 3.3.5a (Check for standard units and open frames)
+	local function IsInteractingWithGossip()
+    	return GossipFrame and GossipFrame:IsShown()
+	end
+	API.IsInteractingWithGossip = IsInteractingWithGossip;
+	
+	local function IsInteractingWithQuestGiver()
+    	return QuestFrame and QuestFrame:IsShown()
+	end
+	API.IsInteractingWithQuestGiver = IsInteractingWithQuestGiver;
+	
+	local function IsInteractingWithDialogNPC()
+    	return UnitExists("npc") and (IsInteractingWithGossip() or IsInteractingWithQuestGiver() or (GossipFrame and GossipFrame:IsShown()) or (QuestFrame and QuestFrame:IsShown()))
+	end
+	API.IsInteractingWithDialogNPCC = IsInteractingWithDialogNPC;
 
     --A helper to close gossip interaction
     --CloseGossip twice in a row cause issue: UI like MerchantFrame won't close itself, no frame portrait
 
-    local CloseGossip = C_GossipInfo.CloseGossip;
+    --[[ local CloseGossip = C_GossipInfo.CloseGossip; --]]
+
+	-- 3.3.5: In 3.3.5a CloseGossip is a global function
+	local CloseGossip = CloseGossip;
 
     local function ResetCloseStatus(self, elapsed)
         self.isClosing = false;
@@ -947,6 +966,83 @@ do  -- Easing
     function EasingFunctions.noChange(t, b, e, d)
         return b
     end
+end
+
+--------------------------------------------------------------------------------
+-- 3.3.5 Compatibility shim for C_QuestLog in WotLK 3.3.5a
+--------------------------------------------------------------------------------
+if not C_QuestLog then
+    C_QuestLog = {};
+
+    -- Check if the player is currently on a specific quest
+    C_QuestLog.IsOnQuest = function(questID)
+        if not questID then return false; end
+        if GetQuestLogIndexByID then
+            local index = GetQuestLogIndexByID(questID);
+            return index and index > 0;
+        end
+        return false;
+    end;
+
+    -- Return false for trivial (grey) quests as a safe default
+    C_QuestLog.IsQuestTrivial = function(questID)
+        return false;
+    end;
+
+    -- Retrieve quest title using the quest ID
+    C_QuestLog.GetTitleForQuestID = function(questID)
+        if not questID then return ""; end
+        if GetQuestLogIndexByID then
+            local index = GetQuestLogIndexByID(questID);
+            if index and index > 0 then
+                local title = GetQuestLogTitle(index);
+                return title;
+            end
+        end
+        return "";
+    end;
+
+    -- Wrapper for native GetNumQuestLogEntries
+    C_QuestLog.GetNumQuestLogEntries = function()
+        if GetNumQuestLogEntries then
+            return GetNumQuestLogEntries();
+        end
+        return 0, 0;
+    end;
+
+    -- Get quest ID by log index (In 3.3.5a, questID is the 8th return of GetQuestLogTitle)
+    C_QuestLog.GetQuestIDForLogIndex = function(index)
+        if GetQuestLogTitle then
+            local _, _, _, _, _, _, _, questID = GetQuestLogTitle(index);
+            return questID or 0;
+        end
+        return 0;
+    end;
+
+    -- Return a simulated info table for a quest log index
+    C_QuestLog.GetInfo = function(index)
+        if GetQuestLogTitle then
+            local title, level, questTag, suggestedGroup, isHeader, isComplete, frequency, questID = GetQuestLogTitle(index);
+            if not title then return nil; end
+            return {
+                title = title,
+                level = level,
+                isHeader = isHeader,
+                isComplete = isComplete,
+                frequency = frequency,
+                questID = questID,
+                isHidden = false,
+            };
+        end
+        return nil;
+    end;
+
+    -- Stubs for modern account-wide or advanced quest features not present in 3.3.5a
+    C_QuestLog.IsAccountQuest = AlwaysFalse;
+    C_QuestLog.GetQuestTagInfo = AlwaysFalse;
+    C_QuestLog.GetQuestDetailsTheme = AlwaysFalse;
+    C_QuestLog.IsWorldQuest = AlwaysFalse;
+    C_QuestLog.IsQuestTask = AlwaysFalse;
 end
 
 do  -- Quest
