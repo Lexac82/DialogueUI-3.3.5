@@ -722,8 +722,34 @@ do  -- NPC Interaction
 
 
     DUIUtilityActorMixin = {};
+	-- 3.3.5: ModelScene evaluations are not supported in 3.3.5a, providing safe stubs
 
-    function DUIUtilityActorMixin:EvaluateNPCHeight()
+	function DUIUtilityActorMixin:EvaluateNPCHeight()
+        -- Stub for 3.3.5a
+    end
+
+    function DUIUtilityActorMixin:GetMountScale()
+        -- Stub for 3.3.5a
+    end
+
+    function DUIUtilityActorMixin:OnModelLoaded()
+        if self.onModelLoadedCallback then
+            self.onModelLoadedCallback(self);
+        end
+    end
+
+    local function EvaluateNPCSize()
+        -- ModelScene not available in 3.3.5a
+        return false;
+    end
+    API.EvaluateNPCSize = EvaluateNPCSize;
+
+    local function EvaluateMountScale(mountID)
+        -- Not supported in 3.3.5a
+    end
+    API.EvaluateMountScale = EvaluateMountScale;
+	
+    --[[function DUIUtilityActorMixin:EvaluateNPCHeight()
         local bottomX, bottomY, bottomZ, topX, topY, topZ = self:GetActiveBoundingBox(); -- Could be nil for invisible models
         if bottomX and bottomY and bottomZ and topX and topY and topZ then
             local width = topX - bottomX;
@@ -771,8 +797,8 @@ do  -- NPC Interaction
         if self.onModelLoadedCallback then
             self.onModelLoadedCallback(self);
         end
-    end
-
+    end --]]
+	
     --0.8, 1.0, 1.6: Goblin
     --0.9, 1.1, 2.1: Human
     --1.1, 1.3, 1.7: Dwarf
@@ -2217,7 +2243,7 @@ do  -- Fade Frame
     API.UIFrameFadeIn = UIFrameFadeIn;   --from 0 to 1
 end
 
-do  -- Model
+--[[ do  -- Model
     local UnitRace = UnitRace;
     local WantsAlteredForm = C_UnitAuras and C_UnitAuras.WantsAlteredForm or AlwaysFalse;
 
@@ -2255,6 +2281,76 @@ do  -- Model
 
         function UnitPortraitSetter:SetPortraitTexture(textureObject, unit)
             if IsUnitModelReadyForUI(unit) then
+                self.queue[textureObject] = nil;
+                SetPortraitTexture(textureObject, unit);
+            else
+                self.queue[textureObject] = unit;
+                self.t = 0;
+                self:SetScript("OnUpdate", self.OnUpdate);
+            end
+        end
+
+        function UnitPortraitSetter:OnUpdate(elapsed)
+            self.t = self.t + elapsed;
+            if self.t >= 1.0 then
+                self.t = 0;
+                self:SetScript("OnUpdate", nil);
+                for textureObject, unit in pairs(self.queue) do
+                    if textureObject:IsVisible() then
+                        SetPortraitTexture(textureObject, unit);
+                    end
+                end
+                self.queue = {};
+            end
+        end
+
+        API.SetPortraitTexture = function(textureObject, unit)
+            UnitPortraitSetter:SetPortraitTexture(textureObject, unit);
+        end
+    end
+end --]]
+
+do  -- 3.3.5: Model (3.3.5 Compatibility)
+    local UnitRace = UnitRace;
+    -- C_UnitAuras does not exist in 3.3.5a
+    local WantsAlteredForm = C_UnitAuras and C_UnitAuras.WantsAlteredForm or AlwaysFalse;
+
+    local function SetModelByUnit(model, unit)
+        if not model or not UnitExists(unit) then return; end
+        local _, raceFileName = UnitRace(unit);
+        -- Only check altered form if the API and race support it (Retail feature)
+        if (raceFileName == "Dracthyr" or raceFileName == "Worgen") and C_UnitAuras then
+            local arg = WantsAlteredForm(unit);
+            model:SetUnit(unit, false, arg);    -- blend = false
+        else
+            model:SetUnit(unit, false);
+        end
+        model.unit = unit;
+    end
+    API.SetModelByUnit = SetModelByUnit;
+
+    local function SetModelLight(model, enabled, omni, dirX, dirY, dirZ, ambIntensity, ambR, ambG, ambB, dirIntensity, dirR, dirG, dirB)
+        if not model or not model.SetLight then return; end
+        local lightValues = {
+            omnidirectional = omni or false,
+            point = CreateVector3D and CreateVector3D(dirX or 0, dirY or 0, dirZ or 0) or {x = dirX or 0, y = dirY or 0, z = dirZ or 0},
+            ambientIntensity = ambIntensity or 1,
+            ambientColor = CreateColor and CreateColor(ambR or 1, ambG or 1, ambB or 1) or nil,
+            diffuseIntensity = dirIntensity or 1,
+            diffuseColor = CreateColor and CreateColor(dirR or 1, dirG or 1, dirB or 1) or nil,
+        };
+
+        model:SetLight(enabled, lightValues);
+    end
+    API.SetModelLight = SetModelLight;
+
+    do  -- UnitPortraitSetter
+        local UnitPortraitSetter = CreateFrame("Frame");
+        UnitPortraitSetter.queue = {};
+
+        function UnitPortraitSetter:SetPortraitTexture(textureObject, unit)
+            local isReady = IsUnitModelReadyForUI and IsUnitModelReadyForUI(unit) or true;
+            if isReady then
                 self.queue[textureObject] = nil;
                 SetPortraitTexture(textureObject, unit);
             else
