@@ -93,7 +93,9 @@ do
         self:SetScript("OnShow", self.OnShow);
         self:SetScript("OnHide", self.OnHide);
 
-        self.AnimIn = self:CreateAnimationGroup(nil, "DUIQuestFlyoutAnimationTemplate");
+        -- [3.3.5a Port]: Modern animation template is unavailable in WotLK, create a standard animation group instead
+        -- self.AnimIn = self:CreateAnimationGroup(nil, "DUIQuestFlyoutAnimationTemplate");
+        self.AnimIn = self:CreateAnimationGroup();
     end
 
     function QuestFlyoutFrameMixin:SetLineSpacing(lineSpacing)
@@ -288,16 +290,8 @@ do
     end
 
     function QuestFlyoutFrameMixin:OnEvent(event, ...)
-        --print(event, ...)
-        if event == "GLOBAL_MOUSE_DOWN" then
-            if self:IsShown() then
-                if self:IsMouseOver() then
-                    self:Close();
-                end
-            else
-
-            end
-        elseif event == "QUEST_TURNED_IN" then
+        -- [3.3.5a Port]: Removed GLOBAL_MOUSE_DOWN handling as global mouse events are unsupported in WotLK
+        if event == "QUEST_TURNED_IN" then
             local questID, xpReward, moneyReward = ...
             if questID == self.questID then
                 self:SetWatchedQuest(nil);
@@ -455,19 +449,24 @@ do
         if not MainFrame then
             MainFrame = addon.CreateResizableBackground(UIParent, QuestFlyoutFrameMixin);
             MainFrame:Hide();
-            MainFrame:SetIgnoreParentScale(true);
+            if MainFrame.SetIgnoreParentScale then
+                MainFrame:SetIgnoreParentScale(true);
+            end
             MainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
             MainFrame:Init();
             MainFrame:SetAlpha(0);
 
             --debug
             MainFrame:SetScript("OnEvent", MainFrame.OnEvent);
-            MainFrame:RegisterEvent("GLOBAL_MOUSE_DOWN");
+            -- [3.3.5a Port]: GLOBAL_MOUSE_DOWN event does not exist in 3.3.5a
+            -- MainFrame:RegisterEvent("GLOBAL_MOUSE_DOWN");
         end
 
         if not LoadingIndicator then
             LoadingIndicator = addon.CreateLoadingIndicator(UIParent);
-            LoadingIndicator:SetIgnoreParentScale(true);
+            if LoadingIndicator.SetIgnoreParentScale then
+                LoadingIndicator:SetIgnoreParentScale(true);
+            end
             LoadingIndicator:SetMaxShownTime(3);
         end
 
@@ -492,7 +491,8 @@ do
 
     function QuestFlyout:GetRewardItemInfo(index)
         local questInfoType = "reward";
-        local name, texture, count, quality, isUsable, itemID, questRewardContextFlags = GetQuestItemInfo(questInfoType, index);    --no itemID in Classic
+        -- [3.3.5a Port]: In WotLK GetQuestItemInfo does not always return itemID directly, link-based fallback is required
+        local name, texture, count, quality, isUsable, itemID, questRewardContextFlags = GetQuestItemInfo(questInfoType, index);
         if not itemID then
             local link = GetQuestItemLink(questInfoType, index);
             if link then
