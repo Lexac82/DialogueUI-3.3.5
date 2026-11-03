@@ -46,13 +46,7 @@ local MapEvents = {
 
 local CloseDialogEvents = {};
 
---[[ if C_EventUtils.IsEventValid("CONFIRM_TALENT_WIPE") then
-    --Talent reset at class trainers: close our UI so the confirmation popup shows
-    table.insert(GossipEvents, "CONFIRM_TALENT_WIPE");
-    CloseDialogEvents["CONFIRM_TALENT_WIPE"] = true;
-end --]]
-
--- 3.3.5: Add talent reset event for WotLK directly
+-- Add talent reset event for WotLK 3.3.5 directly
 table.insert(GossipEvents, "CONFIRM_TALENT_WIPE");
 CloseDialogEvents["CONFIRM_TALENT_WIPE"] = true;
 
@@ -389,13 +383,7 @@ do  --Unlisten events from default UI
         PORTRAITS_UPDATED = true,
     };
 
-	--[[ if C_EventUtils.IsEventValid("LEARNED_SPELL_IN_SKILL_LINE") then
-        Muter.questEvents.LEARNED_SPELL_IN_SKILL_LINE = true;
-    elseif C_EventUtils.IsEventValid("LEARNED_SPELL_IN_TAB") then
-        Muter.questEvents.LEARNED_SPELL_IN_TAB = true;         --Old Classic
-    end --]]
-	
-	-- 3.3.5: Define the 3.3.5a standard event for learned spells
+	-- define the 3.3.5a standard event for learned spells
     Muter.questEvents.LEARNED_SPELL_IN_TAB = true;
     
     local function SetUseDialogueUI(state)
@@ -488,51 +476,7 @@ do  --Unlisten events from default UI
     addon.CallbackRegistry:Register("SettingChanged.DisableDUIInInstance", Settings_DisableDUIInInstance);
 end
 
---[[ do  --See Blizzard_UIPanels_Game/CustomGossipFrameBase.lua
-	local function HandleNPEGuideGossipShow(textureKit)
-		C_AddOns.LoadAddOn("Blizzard_NewPlayerExperienceGuide");
-		ShowUIPanel(GuideFrame);
-		return GuideFrame
-	end
-
-	local function HandleTorghastLevelPickerGossipShow(textureKit)
-		C_AddOns.LoadAddOn("Blizzard_TorghastLevelPicker");
-		TorghastLevelPickerFrame:TryShow(textureKit)
-		return TorghastLevelPickerFrame
-	end
-
-    local function HandleDelvesDifficultyPickerGossipShow(textureKit)   --TWW
-		C_AddOns.LoadAddOn("Blizzard_DelvesDifficultyPicker");
-		DelvesDifficultyPickerFrame:TryShow(textureKit);
-		return DelvesDifficultyPickerFrame
-	end
-
-    local Handlers = {};
-
-    function EL:RegisterHandler(textureKit, func)
-        Handlers[textureKit] = func;
-    end
-
-	function EL:RegisterCustomGossipFrames()
-		self:RegisterHandler("npe-guide", HandleNPEGuideGossipShow);
-		self:RegisterHandler("skoldushall", HandleTorghastLevelPickerGossipShow);
-		self:RegisterHandler("mortregar", HandleTorghastLevelPickerGossipShow);
-		self:RegisterHandler("coldheartinterstitia", HandleTorghastLevelPickerGossipShow);
-		self:RegisterHandler("fracturechambers", HandleTorghastLevelPickerGossipShow);
-		self:RegisterHandler("soulforges", HandleTorghastLevelPickerGossipShow);
-		self:RegisterHandler("theupperreaches", HandleTorghastLevelPickerGossipShow);
-		self:RegisterHandler("twistingcorridors", HandleTorghastLevelPickerGossipShow);
-        self:RegisterHandler("delves-difficulty-picker", HandleDelvesDifficultyPickerGossipShow);   --For some reason this textureKit is sometimes nil, causing issue
-	end
-    EL:RegisterCustomGossipFrames();
-
-    function GetCustomGossipHandler(textureKit)
-        return textureKit and Handlers[textureKit]
-    end
-    addon.GetCustomGossipHandler = GetCustomGossipHandler;
-end --]]
-
-do  -- 3.3.5: Define custom gossip handler dummy for WotLK 3.3.5a
+do  -- Define custom gossip handler dummy for WotLK 3.3.5a
     local Handlers = {};
 
     function EL:RegisterHandler(textureKit, func)
