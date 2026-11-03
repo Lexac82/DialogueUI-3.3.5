@@ -579,28 +579,8 @@ do  -- NPC Interaction
             end
         end
     end
-
-
-    --[[ local IsInteractingWithNpcOfType = C_PlayerInteractionManager.IsInteractingWithNpcOfType;
-    local TYPE_GOSSIP = Enum.PlayerInteractionType and Enum.PlayerInteractionType.Gossip or 3;
-    local TYPE_QUEST_GIVER = Enum.PlayerInteractionType and Enum.PlayerInteractionType.QuestGiver or 4;
-
-    local function IsInteractingWithGossip()
-        return IsInteractingWithNpcOfType(TYPE_GOSSIP)
-    end
-    API.IsInteractingWithGossip = IsInteractingWithGossip;
-
-    local function IsInteractingWithQuestGiver()
-        return IsInteractingWithNpcOfType(TYPE_QUEST_GIVER)
-    end
-    API.IsInteractingWithQuestGiver = IsInteractingWithQuestGiver;
-
-    local function IsInteractingWithDialogNPC()
-        return (IsInteractingWithNpcOfType(TYPE_GOSSIP) or IsInteractingWithNpcOfType(TYPE_QUEST_GIVER))
-    end
-    API.IsInteractingWithDialogNPC = IsInteractingWithDialogNPC; --]]
-
-	-- 3.3.5: Fallback for 3.3.5a (Check for standard units and open frames)
+	
+	-- Fallback for 3.3.5a (Check for standard units and open frames)
 	local function IsInteractingWithGossip()
     	return GossipFrame and GossipFrame:IsShown()
 	end
@@ -616,12 +596,7 @@ do  -- NPC Interaction
 	end
 	API.IsInteractingWithDialogNPCC = IsInteractingWithDialogNPC;
 
-    --A helper to close gossip interaction
-    --CloseGossip twice in a row cause issue: UI like MerchantFrame won't close itself, no frame portrait
-
-    --[[ local CloseGossip = C_GossipInfo.CloseGossip; --]]
-
-	-- 3.3.5: In 3.3.5a CloseGossip is a global function
+	-- In 3.3.5a CloseGossip is a global function
 	local CloseGossip = CloseGossip;
 
     local function ResetCloseStatus(self, elapsed)
@@ -722,7 +697,7 @@ do  -- NPC Interaction
 
 
     DUIUtilityActorMixin = {};
-	-- 3.3.5: ModelScene evaluations are not supported in 3.3.5a, providing safe stubs
+	-- ModelScene evaluations are not supported in 3.3.5a, providing safe stubs
 
 	function DUIUtilityActorMixin:EvaluateNPCHeight()
         -- Stub for 3.3.5a
@@ -748,57 +723,7 @@ do  -- NPC Interaction
         -- Not supported in 3.3.5a
     end
     API.EvaluateMountScale = EvaluateMountScale;
-	
-    --[[function DUIUtilityActorMixin:EvaluateNPCHeight()
-        local bottomX, bottomY, bottomZ, topX, topY, topZ = self:GetActiveBoundingBox(); -- Could be nil for invisible models
-        if bottomX and bottomY and bottomZ and topX and topY and topZ then
-            local width = topX - bottomX;
-            local depth = topY - bottomY;
-            local height = topZ - bottomZ;
-
-            --local widthScale = width / MODEL_SCENE_ACTOR_DIMENSIONS_FOR_NORMALIZATION.width;
-            --local depthScale = depth / MODEL_SCENE_ACTOR_DIMENSIONS_FOR_NORMALIZATION.depth;
-            --local heightScale = height / MODEL_SCENE_ACTOR_DIMENSIONS_FOR_NORMALIZATION.height;
-            --print(width, depth, height);
-
-            if CameraController and height then
-                CameraController:OnModelEvaluationComplete(height);
-            end
-        end
-        self:ClearModel();
-    end
-
-    function DUIUtilityActorMixin:GetMountScale()
-        --local calcMountScale = MountActor:CalculateMountScale(PlayerActor);
-        --local inverseScale = 1 / calcMountScale;
-        --the results are always 1.0 after certain patch
-        --print(self.mountName, calcMountScale, inverseScale);
-        local bottomX, bottomY, bottomZ, topX, topY, topZ = self:GetActiveBoundingBox(); -- Could be nil for invisible models
-        if bottomX and bottomY and bottomZ and topX and topY and topZ then
-            local width = topX - bottomX;
-            local depth = topY - bottomY;
-            local height = topZ - bottomZ;
-
-            local widthScale = width / 2.1;
-            local depthScale = depth / 1.1;
-            local heightScale = height / 1;
-            print(width, depth, height);
-
-            local scale = widthScale * depthScale * heightScale;
-            print(scale);
-
-            local volumn = width * height * depth;
-            print(volumn)
-        end
-        self:ClearModel();
-    end
-
-    function DUIUtilityActorMixin:OnModelLoaded()
-        if self.onModelLoadedCallback then
-            self.onModelLoadedCallback(self);
-        end
-    end --]]
-	
+		
     --0.8, 1.0, 1.6: Goblin
     --0.9, 1.1, 2.1: Human
     --1.1, 1.3, 1.7: Dwarf
@@ -995,7 +920,7 @@ do  -- Easing
 end
 
 --------------------------------------------------------------------------------
--- 3.3.5 Compatibility shim for C_QuestLog in WotLK 3.3.5a
+-- Compatibility shim for C_QuestLog in WotLK 3.3.5a
 --------------------------------------------------------------------------------
 if not C_QuestLog then
     C_QuestLog = {};
@@ -1768,22 +1693,8 @@ do  -- Color
     API.SetTextColorByGlobal = SetTextColorByGlobal;
 end
 
-do  -- Currency
-    --[[ local GetCurrencyContainerInfoDefault = C_CurrencyInfo.GetCurrencyContainerInfo;
-	local GetCurrencyInfo = C_CurrencyInfo.GetCurrencyInfo;
+do  -- Currency (3.3.5 compatibility)
     local format = string.format;
-    local FormatLargeNumber = FormatLargeNumber;
-
-    local function GetCurrencyContainerInfo(currencyID, numItems, name, texture, quality)
-        local entry = GetCurrencyContainerInfoDefault(currencyID, numItems);
-        if entry then
-            return entry.name, entry.icon, entry.displayAmount, entry.quality
-        end
-        return name, texture, numItems, quality
-    end --]]
-
-	-- 3.3.5: Create compatibility for currency
-	local format = string.format;
     local FormatLargeNumber = FormatLargeNumber or function(n) return tostring(n); end;
 
     -- Fallback for C_CurrencyInfo in 3.3.5a
@@ -2243,74 +2154,7 @@ do  -- Fade Frame
     API.UIFrameFadeIn = UIFrameFadeIn;   --from 0 to 1
 end
 
---[[ do  -- Model
-    local UnitRace = UnitRace;
-    local WantsAlteredForm = C_UnitAuras and C_UnitAuras.WantsAlteredForm or AlwaysFalse;
-
-    local function SetModelByUnit(model, unit)
-        local _, raceFileName = UnitRace(unit);
-        if raceFileName == "Dracthyr" or raceFileName == "Worgen" then
-            local arg = WantsAlteredForm(unit);
-            model:SetUnit(unit, false, arg);    --blend = false
-        else
-            model:SetUnit(unit, false);
-        end
-        model.unit = unit;
-    end
-    API.SetModelByUnit = SetModelByUnit;
-
-
-    local function SetModelLight(model, enabled, omni, dirX, dirY, dirZ, ambIntensity, ambR, ambG, ambB, dirIntensity, dirR, dirG, dirB)
-        local lightValues = {
-            omnidirectional = omni or false;
-            point = CreateVector3D(dirX or 0, dirY or 0, dirZ or 0),
-            ambientIntensity = ambIntensity or 1,
-            ambientColor = CreateColor(ambR or 1, ambG or 1, ambB or 1),
-            diffuseIntensity = dirIntensity or 1,
-            diffuseColor = CreateColor(dirR or 1, dirG or 1, dirB or 1),
-        };
-
-        model:SetLight(enabled, lightValues);
-    end
-    API.SetModelLight = SetModelLight;
-
-
-    do  --UnitPortraitSetter
-        local UnitPortraitSetter = CreateFrame("Frame");
-        UnitPortraitSetter.queue = {};
-
-        function UnitPortraitSetter:SetPortraitTexture(textureObject, unit)
-            if IsUnitModelReadyForUI(unit) then
-                self.queue[textureObject] = nil;
-                SetPortraitTexture(textureObject, unit);
-            else
-                self.queue[textureObject] = unit;
-                self.t = 0;
-                self:SetScript("OnUpdate", self.OnUpdate);
-            end
-        end
-
-        function UnitPortraitSetter:OnUpdate(elapsed)
-            self.t = self.t + elapsed;
-            if self.t >= 1.0 then
-                self.t = 0;
-                self:SetScript("OnUpdate", nil);
-                for textureObject, unit in pairs(self.queue) do
-                    if textureObject:IsVisible() then
-                        SetPortraitTexture(textureObject, unit);
-                    end
-                end
-                self.queue = {};
-            end
-        end
-
-        API.SetPortraitTexture = function(textureObject, unit)
-            UnitPortraitSetter:SetPortraitTexture(textureObject, unit);
-        end
-    end
-end --]]
-
-do  -- 3.3.5: Model (3.3.5 Compatibility)
+do  -- Model (3.3.5 Compatibility)
     local UnitRace = UnitRace;
     -- C_UnitAuras does not exist in 3.3.5a
     local WantsAlteredForm = C_UnitAuras and C_UnitAuras.WantsAlteredForm or AlwaysFalse;
@@ -3199,24 +3043,40 @@ do  -- Tooltip
     API.GetItemEffect = GetItemEffect;
 end
 
-do  -- Items
-    local IsEquippableItem = C_Item.IsEquippableItem or IsEquippableItem or AlwaysFalse;
-    local IsCosmeticItem = C_Item.IsCosmeticItem or IsCosmeticItem or AlwaysFalse;
-    local IsDecorItem = C_Item.IsDecorItem or AlwaysFalse;
-    local GetTransmogItemInfo = (C_TransmogCollection and C_TransmogCollection.GetItemInfo) or AlwaysFalse;
-    local GetItemLevel = C_Item.GetDetailedItemLevelInfo or GetDetailedItemLevelInfo or AlwaysZero;
-    local GetItemInfoInstant = C_Item.GetItemInfoInstant;
-    local GetItemInfo = C_Item.GetItemInfo;
-    local IsDressableItem = C_Item.IsDressableItemByID or IsDressableItem or AlwaysFalse;
+do  -- Items (3.3.5 Compatibility)
+    local IsEquippableItem = IsEquippableItem or AlwaysFalse;
+    local IsCosmeticItem = AlwaysFalse;
+    local IsDecorItem = AlwaysFalse;
+    local GetTransmogItemInfo = AlwaysFalse;
+    
+    -- In 3.3.5a, item level can be retrieved from the 4th return value of GetItemInfo
+    local function GetItemLevelFallback(item)
+        if not item then return 0; end
+        local _, _, _, itemLevel = GetItemInfo(item);
+        return itemLevel or 0;
+    end
+    local GetItemLevel = GetDetailedItemLevelInfo or GetItemLevelFallback;
+
+    -- Fallback for GetItemInfoInstant in 3.3.5a using standard GetItemInfo
+    local GetItemInfoInstant = GetItemInfoInstant or function(item)
+        if not item then return nil; end
+        local itemID = tonumber(string.match(tostring(item), "item:(%d+)")) or (type(item) == "number" and item);
+        local name, link, rarity, level, minLevel, itemType, itemSubType, stackCount, equipLoc, texture, sellPrice = GetItemInfo(item);
+        -- Return structure mimics GetItemInfoInstant: itemID, itemType, itemSubType, etc.
+        return itemID, 0, rarity, level, minLevel, itemType, itemSubType, stackCount, equipLoc, texture, sellPrice;
+    end;
+
+    local GetItemInfo = GetItemInfo;
+    local IsDressableItem = IsDressableItemByID or AlwaysFalse;
     local GetQuestItemLink = GetQuestItemLink;
-    local GetToyInfo = C_ToyBox and C_ToyBox.GetToyInfo or AlwaysNil;
+    local GetToyInfo = AlwaysNil;
 
     API.IsEquippableItem = IsEquippableItem;
     API.IsCosmeticItem = IsCosmeticItem;
     API.GetTransmogItemInfo = GetTransmogItemInfo;
     API.GetItemInfo = GetItemInfo;
     API.IsDressableItem = IsDressableItem;
-    API.IsDecorItem = C_Item.IsDecorItem or AlwaysFalse;
+    API.IsDecorItem = AlwaysFalse;
 
     local function _GetItemLevel(item)
         if item then
@@ -3257,7 +3117,7 @@ do  -- Items
 
         local itemID, _, _, _, _, classID, subClassID = GetItemInfoInstant(item);
 
-        if API.IsContainerItem(itemID) then
+        if API.IsContainerItem and API.IsContainerItem(itemID) then
             return "container"
         end
 
@@ -3278,7 +3138,7 @@ do  -- Items
             return "toy"
         end
 
-        if IsDecorItem (itemID) then
+        if IsDecorItem(itemID) then
             return "decor"
         end
     end
@@ -3331,16 +3191,16 @@ do  -- TextureUtil
     API.RemoveIconBorder = RemoveIconBorder;
 end
 
-do  -- Inventory Bags Container
+do  -- Inventory Bags Container (3.3.5 Compatibility)
     local NUM_BAG_SLOTS = 4;
-    local GetItemCount = C_Item.GetItemCount or GetItemCount;
-    local GetContainerNumSlots = C_Container.GetContainerNumSlots;
-    local GetContainerItemID = C_Container.GetContainerItemID;
-    local GetContainerItemQuestInfo = C_Container.GetContainerItemQuestInfo;
-    local GetContainerItemInfo = C_Container.GetContainerItemInfo;
+    local GetItemCount = GetItemCount;
+    local GetContainerNumSlots = GetContainerNumSlots;
+    local GetContainerItemID = GetContainerItemID;
+    local GetContainerItemQuestInfo = GetContainerItemQuestInfo;
+    local GetContainerItemInfo = GetContainerItemInfo;
 
     local function GetItemBagPosition(itemID)
-        local count = GetItemCount(itemID); --unused arg2: Include banks
+        local count = GetItemCount(itemID); -- unused arg2: Include banks
         if count and count > 0 then 
             for bagID = 0, NUM_BAG_SLOTS do
                 for slotID = 1, GetContainerNumSlots(bagID) do
@@ -3354,18 +3214,23 @@ do  -- Inventory Bags Container
     API.GetItemBagPosition = GetItemBagPosition;
 
     local function GetBagQuestItemInfo(itemID)
-        --used in Widget_QuestItemDisplay
+        -- used in Widget_QuestItemDisplay
         local bagID, slotID = GetItemBagPosition(itemID);
         if bagID and slotID then
-            local containerInfo = GetContainerItemInfo(bagID, slotID);
-            if containerInfo then
+            -- In 3.3.5a, GetContainerItemInfo returns multiple values instead of a table:
+            -- texture, itemCount, locked, quality, readable, lootable, itemLink
+            local texture, itemCount, locked, quality, readable, lootable = GetContainerItemInfo(bagID, slotID);
+            if texture then
                 local itemInfo = {};
-                itemInfo.isReadable = containerInfo.isReadable;
-                itemInfo.hasLoot = containerInfo.hasLoot;
-                local questInfo = GetContainerItemQuestInfo(bagID, slotID);
-                if questInfo then
-                    itemInfo.questID = questInfo.questID;
-                    itemInfo.isOnQuest = questInfo.isActive;
+                itemInfo.isReadable = readable;
+                itemInfo.hasLoot = lootable;
+                
+                if GetContainerItemQuestInfo then
+                    local _, questID, isActive = GetContainerItemQuestInfo(bagID, slotID);
+                    if questID then
+                        itemInfo.questID = questID;
+                        itemInfo.isOnQuest = isActive;
+                    end
                 end
                 return itemInfo
             end
@@ -3381,9 +3246,9 @@ do  -- Inventory Bags Container
             for bagID = 0, NUM_BAG_SLOTS do
                 for slotID = 1, GetContainerNumSlots(bagID) do
                     if (GetContainerItemID(bagID, slotID) == itemID) then
-                        local containerInfo = GetContainerItemInfo(bagID, slotID);
-                        if containerInfo then
-                            return containerInfo.hyperlink
+                        local _, _, _, _, _, _, hyperlink = GetContainerItemInfo(bagID, slotID);
+                        if hyperlink then
+                            return hyperlink
                         end
                     end
                 end
@@ -3402,55 +3267,7 @@ do  -- Inventory Bags Container
     API.GetItemLinkInBag = GetItemLinkInBag;
 end
 
---[[ do  -- Spell
-    local DoesSpellExist = C_Spell.DoesSpellExist;
-    local GetShapeshiftFormID = GetShapeshiftFormID or AlwaysZero;
-    local GetCurrentGlyphNameForSpell = GetCurrentGlyphNameForSpell or AlwaysNil;
-
-    API.GetShapeshiftFormID = GetShapeshiftFormID;
-
-    local function GetGlyphIDForSpell(spellID)
-        local _, glyphID = GetCurrentGlyphNameForSpell(spellID);
-        return glyphID
-    end
-    API.GetGlyphIDForSpell = GetGlyphIDForSpell;
-
-    if C_Spell.GetSpellInfo then
-        local GetSpellInfo_Table = C_Spell.GetSpellInfo;    --{"name", "rank", "iconID", "castTime", "minRange", "maxRange", "spellID", "originalIconID"}
-
-        local function GetSpellName(spellID)
-            local info = spellID and DoesSpellExist(spellID) and GetSpellInfo_Table(spellID);
-            if info then
-                return info.name
-            end
-
-            if spellID then
-                return "Unknown Spell: "..spellID
-            else
-                return "Unknown Spell"
-            end
-        end
-        API.GetSpellName = GetSpellName;
-    else
-        local GetSpellInfo = GetSpellInfo;
-
-        local function GetSpellName(spellID)
-            if spellID and DoesSpellExist(spellID) then
-                local name = GetSpellInfo(spellID);
-                return name
-            else
-                if spellID then
-                    return "Unknown Spell: "..spellID
-                else
-                    return "Unknown Spell"
-                end
-            end
-        end
-        API.GetSpellName = GetSpellName;
-    end
-end --]]
-
-do  -- 3.3.5: Spell (3.3.5 Compatibility)
+do  -- Spell (3.3.5 Compatibility)
     local DoesSpellExist = DoesSpellExist or function(spellID) return spellID ~= nil; end;
     local GetShapeshiftFormID = GetShapeshiftFormID or AlwaysZero;
     local GetCurrentGlyphNameForSpell = GetCurrentGlyphNameForSpell or AlwaysNil;
@@ -3617,38 +3434,8 @@ do  -- System
     else
         API.GetMouseFocus = AlwaysNil;
     end
-
-    --[[ local function TriggerQuestObjectiveTrackerDirty()
-        --(Retail Only) Trigger a "SUPER_TRACKING_CHANGED" so QuestObjectiveTracker removes its popups after QuestObjectiveTrackerMixin:OnEvent
-        if not C_SuperTrack then return end;
-
-        local oldWaypoint C_Map.GetUserWaypoint();
-        local hasWaypoints = oldWaypoint ~= nil;
-        local isTracking = hasWaypoints and C_SuperTrack.IsSuperTrackingUserWaypoint();
-
-        C_QuestLog.AddQuestWatch(0);
-        if not hasWaypoints then
-            oldWaypoint = {
-                uiMapID = 84,
-                position = {
-                    x = 0.5,
-                    y = 0.5,
-                },
-            };
-
-            C_Map.SetUserWaypoint(oldWaypoint);
-        end
-
-        C_SuperTrack.SetSuperTrackedUserWaypoint(not isTracking);
-
-        if hasWaypoints then
-            C_SuperTrack.SetSuperTrackedUserWaypoint(isTracking);
-        else
-            C_Map.ClearUserWaypoint();
-        end
-    end --]]
-
-	-- 3.3.5: create client compatibility
+ 
+	-- create 3.3.5 client compatibility
 	local function TriggerQuestObjectiveTrackerDirty()
     	-- Not supported in 3.3.5a
     	return;
@@ -3706,14 +3493,7 @@ do  -- System
     end
 end
 
---[[ do  -- Zone -- Location -- Area
-    local function GetZoneName(areaID)
-        return C_Map.GetAreaInfo(areaID)
-    end
-    API.GetZoneName = GetZoneName;
-end --]]
-
-do  -- 3.3.5: Zone -- Location -- Area (3.3.5 Compatibility)
+do  -- Zone -- Location -- Area (3.3.5 Compatibility)
     local function GetZoneName(areaID)
         return GetRealZoneText() or "";
     end
