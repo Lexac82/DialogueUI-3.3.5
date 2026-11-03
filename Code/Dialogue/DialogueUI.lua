@@ -17,7 +17,7 @@ local GetDBBool = addon.GetDBBool;
 local SwipeEmulator = addon.SwipeEmulator;
 local GossipDataProvider = addon.GossipDataProvider;
 local HeaderWidgetManger = addon.HeaderWidgetManger;
-local IS_MODERN_WOW = not addon.IS_CLASSIC;
+local IS_MODERN_WOW = false;
 
 local FadeFrame = API.UIFrameFade;
 local CloseGossipInteraction = API.CloseGossipInteraction;
@@ -44,8 +44,15 @@ local PARAGRAPH_SPACING = 4*TEXT_SPACING;           --4 * TEXT_SPACING
 local PARAGRAPH_BUTTON_SPACING = 2*FONT_SIZE;       --Font Size * 2
 
 local CreateFrame = CreateFrame;
-local C_CampaignInfo = C_CampaignInfo;
-local C_GossipInfo = C_GossipInfo;
+local C_CampaignInfo = nil; -- Gibt es in 3.3.5 nicht
+local C_GossipInfo = {
+    GetOptions = function() return GetGossipOptions() end,
+    GetAvailableQuests = function() return GetGossipAvailableQuests() end,
+    GetActiveQuests = function() return GetGossipActiveQuests() end,
+    SelectOption = function(index) SelectGossipOption(index) end,
+    SelectAvailableQuest = function(index) SelectGossipAvailableQuest(index) end,
+    SelectActiveQuest = function(index) SelectGossipActiveQuest(index) end,
+};
 local GetGossipText = API.GetGossipText;
 local CloseQuest = CloseQuest;
 local GetOptions = C_GossipInfo.GetOptions;
@@ -80,7 +87,7 @@ local GetNumQuestChoices = GetNumQuestChoices;
 local AcknowledgeAutoAcceptQuest = API.AcknowledgeAutoAcceptQuest;
 
 
-local After = C_Timer.After;
+local After = API.After or function(delay, func) C_Timer.After(delay, func) end; -- emulated or via C_Timer is available
 local tinsert = table.insert;
 local tsort = table.sort;
 local find = string.find;
@@ -724,7 +731,7 @@ function DUIDialogBaseMixin:AcquireAndSetSubHeader(text)
     return background
 end
 
-function DUIDialogBaseMixin:UseQuestLayout(state)
+function DUIDialogBaseMixin:UseQuestLayout(state) -- updated for 3.3.5 compatibility
     local forceUpdate = SETTINGS_UI_VISIBLE == true;
     local isQuestChanged;
 
@@ -757,14 +764,9 @@ function DUIDialogBaseMixin:UseQuestLayout(state)
         self.hasActiveGossipQuests = false;
         self.activeQuestButtons = {};
 
-        if questID and API.IsQuestFlaggedCompletedOnAccount(questID) then
-            self.WarbandCompleteAlert:Show();
-            self.FrontFrame.Header.Title:SetPoint("RIGHT", self.FrontFrame.Header, "RIGHT", -56, 2);
-            CallbackRegistry:TriggerOnNextUpdate("WarbandCompleteAlert.Show", self.FrontFrame.Header, self.WarbandCompleteAlert);
-        else
-            self.WarbandCompleteAlert:Hide();
-            self.FrontFrame.Header.Title:SetPoint("RIGHT", self.FrontFrame.Header, "RIGHT", -8, 2);
-        end
+        -- Backport 3.3.5a: Warbands / Account-wide completed quests do not exist in WotLK
+        self.WarbandCompleteAlert:Hide();
+        self.FrontFrame.Header.Title:SetPoint("RIGHT", self.FrontFrame.Header, "RIGHT", -8, 2);
 
     elseif self.questLayout ~= false or forceUpdate then
         self.questLayout = false;
@@ -785,7 +787,7 @@ function DUIDialogBaseMixin:UseQuestLayout(state)
     return isQuestChanged
 end
 
-function DUIDialogBaseMixin:UpdateQuestTitle(method)
+function DUIDialogBaseMixin:UpdateQuestTitle(method) -- updated for 3.3.5 compatibility
     local text = GetQuestTitle();
 
     local headerFrame = self.FrontFrame.Header;
@@ -812,35 +814,19 @@ function DUIDialogBaseMixin:UpdateQuestTitle(method)
 
     HeaderWidgetManger:ReleaseAllWidgets();
 
+    -- Backport 3.3.5a: CampaignInfo, QuestTags and QuestBackgroundDecor do not exist in WotLK
     local questID = self.questID;
-    local campaignID = C_CampaignInfo and C_CampaignInfo.GetCampaignID(questID);
-
-    if campaignID and campaignID ~= 0 then
-        local campaignInfo = C_CampaignInfo.GetCampaignInfo(campaignID);
-        if campaignInfo then
-            HeaderWidgetManger:AddCampaign(campaignInfo.name, campaignID)
+    if API.GetQuestBackgroundDecor then
+        local decor = API.GetQuestBackgroundDecor(questID);
+        if decor then
+            self.BackgroundDecor:SetTexture(decor);
+            self.BackgroundDecor:Show();
+        else
+            self.BackgroundDecor:Hide();
         end
     else
-        local questTagID = API.GetQuestTag(questID);
-        if questTagID then
-            --print("questTagID", questTagID) --debug
-            local tagName, tagIcon = API.GetQuestTagNameIcon(questTagID);
-            if tagName then
-                HeaderWidgetManger:AddQuestTag(tagName, tagIcon);
-            end
-        end
-
-        local isRecurring, seconds = API.GetRecurringQuestTimeLeft(questID);
-        if isRecurring and seconds then
-            HeaderWidgetManger:AddQuestRemainingTime(seconds);
-        end
-
-        HeaderWidgetManger:RequestQuestData(questID);
+        self.BackgroundDecor:Hide();
     end
-
-    local decor = API.GetQuestBackgroundDecor(questID);
-    self.BackgroundDecor:SetTexture(decor);
-    self.BackgroundDecor:Show();
 
     CallbackRegistry:Trigger("ViewingQuest", questID, method);
 
@@ -1019,7 +1005,7 @@ end
 function DUIDialogBaseMixin:FadeInContentFrame()
     if self:IsShown() and not SETTINGS_UI_VISIBLE then
         FadeFrame(self.ContentFrame, 0.35, 1, 0);
-        PlaySound("SOUNDKIT.IG_QUEST_LIST_OPEN");
+        PlaySound("igQuestListOpen"); -- Changed for 3.3.5a sound handling
     else
         self.ContentFrame:SetAlpha(1);
     end
