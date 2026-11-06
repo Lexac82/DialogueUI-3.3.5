@@ -4,6 +4,7 @@ local VERSION_DATE = 1791100000;
 
 local addonName, addon = ...
 
+-- Initialize the addon's shared localization, API, and database references.
 local L = {};       --Locale
 local API = {};     --Custom APIs used by this addon
 local DB;
@@ -12,6 +13,7 @@ addon.L = L;
 addon.API = API;
 addon.VERSION_TEXT = VERSION_TEXT;
 
+-- Define default values for persistent settings and feature toggles.
 local DefaultValues = {
     Theme = 1,
     FrameSize = 2,
@@ -111,6 +113,7 @@ local DefaultValues = {
     --WarbandCompletedQuest = true,         --Always ON
 };
 
+-- Map newer setting keys to older keys whose saved values can be migrated.
 local InheritExistingValues = {
     --Newly added systems may copy the the dbValue of similar system: BookUI/DialogueUI frame size, Book/Dialogue voice
     --If the new dbValue doesn't exisit and the existing dbValue isn't the default value, use the new default value
@@ -120,6 +123,7 @@ local InheritExistingValues = {
     {"BookTTSVoice", "TTSVoiceFemale"},
 };
 
+-- List tutorial identifiers used to determine which tutorials have already been shown.
 local TutorialFlags = {
     --Saved in the DB, prefix: Tutorial_
     --e.g. Tutorial_OpenSettings = true
@@ -127,17 +131,20 @@ local TutorialFlags = {
     "WarbandCompletedQuest",
 };
 
+-- Return the saved value for a database key.
 local function GetDBValue(dbKey)
     return DB[dbKey]
 end
 addon.GetDBValue = GetDBValue;
 
+-- Save a setting value and notify registered listeners that it changed.
 local function SetDBValue(dbKey, value, userInput)
     DB[dbKey] = value;
     addon.CallbackRegistry:Trigger("SettingChanged."..dbKey, value, userInput);
 end
 addon.SetDBValue = SetDBValue;
 
+-- Trigger tutorials that do not yet have a saved completion flag.
 local function LoadTutorials()
     --Tutorial Flags (nil means haven't shown)
 
@@ -150,6 +157,7 @@ local function LoadTutorials()
     end
 end
 
+-- Initialize saved variables, migrate compatible values, apply defaults, and notify addon modules.
 local function LoadDatabase()
     DialogueUI_DB = DialogueUI_DB or {};
     DB = DialogueUI_DB;
@@ -189,6 +197,7 @@ local function LoadDatabase()
     addon.CallbackRegistry:Trigger("ADDON_LOADED", DB);
 end
 
+-- Mark a tutorial as completed in the saved variables.
 local function SetTutorialRead(tutorialFlag)
     local dbKey = "Tutorial_"..tutorialFlag;
     DB[dbKey] = true;
@@ -196,6 +205,7 @@ end
 addon.SetTutorialRead = SetTutorialRead;
 
 
+-- Register for addon initialization and world-entry events, then forward lifecycle notifications.
 local EL = CreateFrame("Frame");
 EL:RegisterEvent("ADDON_LOADED");
 EL:RegisterEvent("PLAYER_ENTERING_WORLD");
@@ -223,6 +233,7 @@ EL:SetScript("OnEvent", function(self, event, ...)
 end);
 
 
+-- Determine the client build and expose compatibility flags for addon modules.
 do
     local currentToCVersion = select(4, GetBuildInfo());
     if not currentToCVersion then
@@ -230,6 +241,7 @@ do
     end
     currentToCVersion = tonumber(currentToCVersion);
 
+    -- Return whether the current client interface version meets a minimum version.
     local function IsToCVersionEqualOrNewerThan(targetVersion)
         return currentToCVersion >= targetVersion
     end
@@ -254,6 +266,7 @@ do
 end
 
 
+-- Return whether a saved setting is exactly true, once the database is initialized.
 local function GetDBBool(dbKey)
     if DB then
         return DB[dbKey] == true
@@ -262,6 +275,7 @@ end
 addon.GetDBBool = GetDBBool;
 
 
+-- Toggle a saved boolean setting and notify listeners through SetDBValue.
 local function FlipDBBool(dbKey, userInput)
     if DB then
         SetDBValue(dbKey, not GetDBBool(dbKey), userInput)
@@ -270,6 +284,7 @@ end
 addon.FlipDBBool = FlipDBBool;
 
 
+-- Compare a saved setting with a requested value after database initialization.
 local function IsDBValue(dbKey, value)
     if DB then
         return DB[dbKey] == value
@@ -278,6 +293,7 @@ end
 addon.IsDBValue = IsDBValue;
 
 
+-- Clear all tutorial completion flags so the tutorials can be shown again.
 local function ResetTutorials()
     for _, flag in pairs(TutorialFlags) do
         local dbKey = "Tutorial_"..flag;
@@ -287,6 +303,7 @@ end
 addon.ResetTutorials = ResetTutorials;
 
 
+-- Create the public API namespace used by external integrations.
 do
     DialogueUIAPI = {};
 end
