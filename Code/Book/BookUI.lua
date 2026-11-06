@@ -550,6 +550,30 @@ end
 
 DUIBookUIMixin = {};
 
+-- Initialize the named XML children and attach the book-frame behavior for WotLK.
+function DUIBookFrame_OnLoad(frame)
+    API.Mixin(frame, DUIBookUIMixin);
+
+    frame.ScreenVignette = _G["DUIBookFrameScreenVignette"];
+    frame.ScrollFrame = _G["DUIBookFrameScrollFrame"];
+    frame.ScrollFrame.ScrollChild = _G["DUIBookFrameScrollFrameScrollChild"];
+    frame.Header = _G["DUIBookFrameHeader"];
+    frame.Header.HeaderDivider = _G["DUIBookFrameHeaderHeaderDivider"];
+    frame.Header.HeaderScrollOverlap = _G["DUIBookFrameHeaderHeaderScrollOverlap"];
+    frame.Footer = _G["DUIBookFrameFooter"];
+    frame.Footer.FooterDivider = _G["DUIBookFrameFooterFooterDivider"];
+    frame.ContentFrame = _G["DUIBookFrameContentFrame"];
+
+    -- Register the frame scripts after its mixin methods are available.
+    frame:SetScript("OnShow", frame.OnShow);
+    frame:SetScript("OnHide", frame.OnHide);
+    frame:SetScript("OnMouseUp", frame.OnMouseUp);
+
+    frame:OnLoad();
+end
+
+
+
 do  --Background Calculation \ Theme
     local TextureKit = {
         [1] = {file = "Parchment.png", textColor = {0.19, 0.17, 0.13}, pageSelectedColor = "Ivory", pageNormalColor = "LightBrown", shadow = false, widgetTheme = 3},
