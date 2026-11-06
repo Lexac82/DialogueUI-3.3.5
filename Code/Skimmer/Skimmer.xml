@@ -3,27 +3,31 @@
     <Script file="Skimmer_Template.lua"/>
     <Script file="Skimmer_UI.lua"/>
 
-
-    <Frame name="DUISkimmerOptionTemplate" mixin="DUISkimmerOptionMixin" virtual="true">
-        <Size x="256" y="48"/>
+    <!-- HINT: Avoid the modern mixin attribute; apply DUISkimmerOptionMixin in Lua after CreateFrame. -->
+    <Frame name="DUISkimmerOptionTemplate" virtual="true">
+        <Size x="280" y="80"/>
         <Layers>
             <Layer level="OVERLAY">
-                <FontString parentKey="Title" inherits="GameFontNormal" justifyH="LEFT" justifyV="TOP" maxLines="1">
+                <!-- HINT: Use explicit child names rather than parentKey for legacy XML compatibility. -->
+                <FontString name="$parentTitle" inherits="GameFontNormal" justifyH="LEFT" justifyV="TOP" maxLines="1">
                     <Anchors>
-                        <Anchor point="TOPLEFT" relativeKey="$parent" relativePoint="TOPLEFT" x="8" y="-8"/>
+                        <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT" x="8" y="-8"/>
                     </Anchors>
                 </FontString>
-                <FontString parentKey="Desc" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP" spacing="2">
-                    <Size x="256" y="0"/>
+
+                <FontString name="$parentDesc" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP" spacing="2">
+                    <Size x="264" y="0"/>
                     <Color r="1" g="1" b="1"/>
                     <Anchors>
-                        <Anchor point="TOPLEFT" relativeKey="$parent.Title" relativePoint="BOTTOMLEFT" x="0" y="-4"/>
+                        <Anchor point="TOPLEFT" relativeTo="$parentTitle" relativePoint="BOTTOMLEFT" x="0" y="-4"/>
                     </Anchors>
                 </FontString>
-                <FontString parentKey="TestRewardDisplay" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP" spacing="0">
+
+                <FontString name="$parentTestRewardDisplay" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP">
+                    <Size x="264" y="0"/>
                     <Color r="1" g="1" b="1"/>
                     <Anchors>
-                        <Anchor point="TOPLEFT" relativeKey="$parent.Desc" relativePoint="BOTTOMLEFT" x="0" y="-4"/>
+                        <Anchor point="TOPLEFT" relativeTo="$parentDesc" relativePoint="BOTTOMLEFT" x="0" y="-4"/>
                     </Anchors>
                 </FontString>
             </Layer>
