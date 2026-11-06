@@ -186,15 +186,33 @@ do  -- Skimmer setup and visibility
     -- Create the option-button pool on first use.
     function Skimmer:Init()
         if not self.optionButtonPool then
+            local buttonIndex = 0;
+
+            -- Create a skimmer option button, attach the mixin, and bind the XML child text fields.
+            -- This keeps the button compatible with the older 3.3.5 XML structure, where parentKey
+            -- is not reliably exposed the same way as in newer clients.
             local function CreateOptionButton()
-                return CreateFrame("Frame", nil, self, "DUISkimmerOptionTemplate");
+                buttonIndex = buttonIndex + 1;
+                local frameName = "DUISkimmerOptionButton" .. buttonIndex;
+                local button = CreateFrame("Frame", frameName, self, "DUISkimmerOptionTemplate");
+
+                -- Attach the behavior mixin to the frame instance so the button can expose
+                -- methods like SetQuest(), UpdateQuestObjectives(), and UpdateQuestData().
+                API.Mixin(button, DUISkimmerOptionMixin);
+
+                -- Bind the named XML child text objects to the fields expected by the mixin.
+                -- These names must match the names created in the XML template.
+                button.Title = _G[frameName .. "Title"];
+                button.Desc = _G[frameName .. "Desc"];
+                button.TestRewardDisplay = _G[frameName .. "TestRewardDisplay"];
+
+                return button
             end
 
+            -- Remove pooled buttons and clear stale state before reusing them.
             local function RemoveOptionButton(button)
                 button:Hide();
                 button:ClearAllPoints();
-
-                -- HINT: Clear pooled button state so a reused button cannot retain an old quest.
                 button.questID = nil;
                 button.dataInstanceID = nil;
             end
