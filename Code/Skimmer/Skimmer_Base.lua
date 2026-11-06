@@ -2,6 +2,7 @@ local _, addon = ...
 local Skimmer = CreateFrame("Frame");
 addon.Skimmer = Skimmer;
 
+-- Cache addon helpers and common APIs used throughout this module.
 local API = addon.API;
 local GetCustomGossipHandler = addon.GetCustomGossipHandler;
 local DialogueUI = addon.DialogueUI;
@@ -15,18 +16,24 @@ local DeclineQuest = DeclineQuest;
 local GetQuestID = GetQuestID;
 local UnitLevel = UnitLevel;
 
+-- Legacy quest-detail APIs used when the detail frame is open.
 local GetQuestTitle = GetTitleText;
 local GetObjectiveText = GetObjectiveText;
 
+-- Share the quest cache with the Skimmer template.
 local QuestDataProvider = {};
 Skimmer.QuestDataProvider = QuestDataProvider;
 
+-- This frame owns quest and gossip events while the Skimmer is enabled.
 local EL = CreateFrame("Frame");
 
+-- Reject nil and zero IDs; zero is used by compatibility fallbacks for unavailable IDs.
 local function IsValidQuestID(questID)
     return questID and questID ~= 0
 end
 
+-- Return modern gossip options when available.
+-- The 3.3.5 path does not expose the same structured gossip-option table.
 local function GetOptions()
     if C_GossipInfo and C_GossipInfo.GetOptions then
         return C_GossipInfo.GetOptions() or {}
@@ -34,11 +41,13 @@ local function GetOptions()
     return {}
 end
 
+-- Return active gossip quests in a common table format.
 local function GetActiveQuests()
     if C_GossipInfo and C_GossipInfo.GetActiveQuests then
         return C_GossipInfo.GetActiveQuests() or {}
     end
 
+    -- Build quest records from the legacy quest-greeting APIs.
     local quests = {};
     if not GetNumActiveQuests or not GetActiveTitle then
         return quests
@@ -60,11 +69,13 @@ local function GetActiveQuests()
     return quests
 end
 
+-- Return available quests in a common table format.
 local function GetAvailableQuests()
     if C_GossipInfo and C_GossipInfo.GetAvailableQuests then
         return C_GossipInfo.GetAvailableQuests() or {}
     end
 
+    -- In the legacy client, quest titles and quest metadata are retrieved by list index.
     local quests = {};
     if not GetNumAvailableQuests or not GetAvailableTitle then
         return quests
@@ -73,16 +84,17 @@ local function GetAvailableQuests()
     local count = GetNumAvailableQuests() or 0;
     for index = 1, count do
         local title = GetAvailableTitle(index);
-        local availableInfo = API.GetAvailableQuestInfo and API.GetAvailableQuestInfo(index);
-
         local questID;
-        if availableInfo and type(availableInfo) == "table" then
-            questID = availableInfo.questID or availableInfo[5];
-        elseif availableInfo then
-            questID = select(5, availableInfo);
+
+        -- HINT: Capture all returns from the helper; a single-variable assignment
+        -- would discard the quest ID returned in the fifth position.
+        if API.GetAvailableQuestInfo then
+            local isTrivial, frequency, isRepeatable, isLegendary, returnedQuestID =
+                API.GetAvailableQuestInfo(index);
+            questID = returnedQuestID;
         end
 
-        -- Legacy 3.3.5 returns 0 or nil for some entries and that is not a valid quest ID.
+        -- Some legacy helpers cannot determine an ID for every offered quest.
         if not IsValidQuestID(questID) then
             questID = nil;
         end
@@ -97,6 +109,7 @@ local function GetAvailableQuests()
     return quests
 end
 
+-- Select an available quest through the modern API or the legacy gossip API.
 local function SelectAvailableQuest(questInfo)
     if not questInfo then return end;
 
@@ -107,12 +120,14 @@ local function SelectAvailableQuest(questInfo)
         end
     end
 
+    -- The legacy function expects the quest's list index, not its quest ID.
     if SelectGossipAvailableQuest and questInfo.index then
         SelectGossipAvailableQuest(questInfo.index);
     end
 end
 
 do  -- Event Handler
+    -- Events forwarded to the Skimmer while it owns dialogue handling.
     local DialogueEvents = {
         "GOSSIP_SHOW",
         "GOSSIP_CLOSED",
@@ -123,6 +138,7 @@ do  -- Event Handler
         "QUEST_COMPLETE",
     };
 
+    -- Route gossip and quest events to the appropriate Skimmer handler.
     function EL:OnEvent(event, ...)
         if event == "GOSSIP_SHOW" then
             local handler = GetCustomGossipHandler and GetCustomGossipHandler(...);
@@ -134,6 +150,7 @@ do  -- Event Handler
             self.showGossipFrame = Skimmer:HandleGossip();
 
         elseif event == "QUEST_GREETING" then
+            -- Quest greetings use legacy quest-list APIs and are handled separately.
             self.showGossipFrame = Skimmer:HandleQuestGreeting();
 
         elseif event == "GOSSIP_CLOSED" then
@@ -160,6 +177,7 @@ do  -- Event Handler
         elseif event == "QUEST_DETAIL" then
             local questID = GetQuestID and GetQuestID();
             if QuestDataProvider:IsQueuingQuest(questID) then
+                -- Cache quest details requested by the Skimmer, then close the detail frame.
                 QuestDataProvider:OnQuestDetailReceived(questID);
                 if DeclineQuest then
                     DeclineQuest();
@@ -173,6 +191,7 @@ do  -- Event Handler
         end
     end
 
+    -- Register or unregister all dialogue events as a group.
     function EL:ListenEvents(state)
         local method = state and "RegisterEvent" or "UnregisterEvent";
 
@@ -189,14 +208,14 @@ do  -- Event Handler
 end
 
 do
+    -- Initialize the option-button pool once, when the Skimmer is first needed.
     function Skimmer:Init()
         if self.optionButtonPool then
             return
         end
 
-        -- Create a skimmer option button, attach the mixin, and bind the XML child text fields.
-        -- This keeps the button compatible with older 3.3.5 XML behavior where parentKey is not exposed
-        -- consistently the same way as in newer clients.
+        -- Create a button, apply its behavior mixin, and connect its XML text regions.
+        -- Explicit child references are used for compatibility with the 3.3.5 XML system.
         local buttonIndex = 0;
 
         local function CreateOptionButton()
@@ -204,10 +223,10 @@ do
             local frameName = "DUISkimmerOptionButton" .. buttonIndex;
             local button = CreateFrame("Frame", frameName, self, "DUISkimmerOptionTemplate");
 
-            -- Attach the mixin so the frame has methods such as SetQuest, UpdateQuestObjectives, and UpdateQuestData.
+            -- Add the methods that implement quest display and update behavior.
             API.Mixin(button, DUISkimmerOptionMixin);
 
-            -- Bind the named XML child fields to the field names expected by the mixin.
+            -- Bind the named XML child regions to the fields expected by the mixin.
             button.Title = _G[frameName .. "Title"];
             button.Desc = _G[frameName .. "Desc"];
             button.TestRewardDisplay = _G[frameName .. "TestRewardDisplay"];
@@ -215,7 +234,7 @@ do
             return button
         end
 
-        -- Remove pooled buttons and clear stale state before reusing them.
+        -- Hide a released button and clear state that should not survive pool reuse.
         local function RemoveOptionButton(button)
             button:Hide();
             button:ClearAllPoints();
@@ -228,6 +247,7 @@ do
 end
 
 do
+    -- Release active buttons and clear any tooltip-update references.
     function Skimmer:ReleaseAllObjects()
         if self.optionButtonPool then
             self.optionButtonPool:Release();
@@ -238,6 +258,7 @@ do
         end
     end
 
+    -- Handle quest-log and tooltip events received by the visible Skimmer frame.
     function Skimmer:OnEvent(event, ...)
         if event == "QUEST_LOG_UPDATE" then
             if self.UpdateDisplayedQuests then
@@ -251,6 +272,7 @@ do
     end
     Skimmer:SetScript("OnEvent", Skimmer.OnEvent);
 
+    -- Close gossip and release pooled objects when the Skimmer is hidden.
     function Skimmer:OnHide()
         if C_GossipInfo and C_GossipInfo.CloseGossip then
             C_GossipInfo.CloseGossip();
@@ -263,12 +285,14 @@ do
     end
     Skimmer:SetScript("OnHide", Skimmer.OnHide);
 
+    -- Observe quest-log changes only while the Skimmer is shown.
     function Skimmer:OnShow()
         self:RegisterEvent("QUEST_LOG_UPDATE");
     end
     Skimmer:SetScript("OnShow", Skimmer.OnShow);
 end
 
+-- Hide the Skimmer frame.
 do
     function Skimmer:HideUI()
         self:Hide();
@@ -276,15 +300,17 @@ do
 end
 
 do
+    -- Create and vertically position a button for every valid quest in the supplied list.
     local function AddQuestButtons(questList)
         if not questList then return end;
 
-        self:ReleaseAllObjects();
+        -- HINT: Use Skimmer explicitly here; this local function has no implicit self parameter.
+        Skimmer:ReleaseAllObjects();
 
         local lastObject;
         for _, questInfo in ipairs(questList) do
             if questInfo and IsValidQuestID(questInfo.questID) then
-                local button = self.optionButtonPool:Acquire();
+                local button = Skimmer.optionButtonPool:Acquire();
                 button:SetQuest(questInfo);
 
                 if lastObject then
@@ -298,8 +324,10 @@ do
         end
     end
 
+    -- Handle modern gossip menus and display their available quests.
     function Skimmer:HandleGossip()
-        if DialogueUI and DialogueUI.IsGossipHandledExternally and DialogueUI:IsGossipHandledExternally() then
+        if DialogueUI and DialogueUI.IsGossipHandledExternally
+            and DialogueUI:IsGossipHandledExternally() then
             return false
         end
 
@@ -309,14 +337,17 @@ do
         local activeQuests = GetActiveQuests() or {};
         local availableQuests = GetAvailableQuests() or {};
 
+        -- Auto-selection expects modern structured gossip options.
         if HandleAutoSelect and HandleAutoSelect(options, activeQuests, availableQuests) then
             return false
         end
 
+        -- Sort options for consistent handling where the caller uses this list.
         if SortFunc_GossipPrioritizeQuest and #options > 0 then
             tsort(options, SortFunc_GossipPrioritizeQuest);
         end
 
+        -- Buttons need valid quest IDs because the template requests quest data by ID.
         local validAvailableQuests = {};
         for _, questInfo in ipairs(availableQuests) do
             if questInfo and IsValidQuestID(questInfo.questID) then
@@ -326,6 +357,7 @@ do
 
         AddQuestButtons(validAvailableQuests);
 
+        -- Select queued quests after their detail data has been captured.
         for _, questInfo in ipairs(validAvailableQuests) do
             if QuestDataProvider:IsQueuingQuest(questInfo.questID) then
                 SelectAvailableQuest(questInfo);
@@ -337,11 +369,13 @@ do
         return true
     end
 
+    -- Handle the legacy quest-greeting frame separately from gossip menus.
     function Skimmer:HandleQuestGreeting()
         self:Init();
 
         local availableQuests = GetAvailableQuests() or {};
         local validAvailableQuests = {};
+
         for _, questInfo in ipairs(availableQuests) do
             if questInfo and IsValidQuestID(questInfo.questID) then
                 validAvailableQuests[#validAvailableQuests + 1] = questInfo;
@@ -355,6 +389,7 @@ do
 
         AddQuestButtons(validAvailableQuests);
 
+        -- Continue a queued quest-detail request using the legacy list index.
         for _, questInfo in ipairs(validAvailableQuests) do
             if QuestDataProvider:IsQueuingQuest(questInfo.questID) then
                 SelectAvailableQuest(questInfo);
@@ -366,6 +401,7 @@ do
         return true
     end
 
+    -- Display the currently open quest-detail dialog.
     function Skimmer:HandleQuestDetail()
         self:Init();
 
@@ -392,38 +428,48 @@ end
 do  -- QuestDataProvider
     local QuestCache = {};
 
+    -- Placeholder for future legacy quest-data loading.
     function QuestDataProvider:LoadQuest(questID)
-        -- Legacy compatibility stub for future quest prefetching.
     end
 
+    -- Clear one cached quest or the complete cache.
     function QuestDataProvider:ClearQuestCache(questID)
-        -- Legacy compatibility stub for future cache resets.
+        if questID then
+            QuestCache[questID] = nil;
+        else
+            QuestCache = {};
+        end
     end
 
+    -- Return the cached record for a quest.
     function QuestDataProvider:GetQuestData(questID)
         return QuestCache[questID]
     end
 
+    -- Return the cached quest title, if available.
     function QuestDataProvider:GetQuestTitle(questID)
         local data = QuestCache[questID];
         return data and data.title or nil
     end
 
+    -- Return cached objective text, if available.
     function QuestDataProvider:GetQuestObjective(questID)
         local data = QuestCache[questID];
         return data and data.objectives or nil
     end
 
+    -- Quest reward caching is not implemented for the legacy 3.3.5 path.
     function QuestDataProvider:GetQuestReward(questID)
-        -- Not implemented in the legacy 3.3.5 path yet.
     end
 
+    -- Check whether cached details were captured at the player's current level.
     function QuestDataProvider:IsQuestDetailCached(questID)
         local playerLevel = UnitLevel and UnitLevel("player") or 0;
         local data = QuestCache[questID];
         return data and data.playerLevel == playerLevel
     end
 
+    -- Store quest details while the quest-detail frame is active.
     function QuestDataProvider:OnQuestDetailReceived(questID)
         if not IsValidQuestID(questID) then
             return
@@ -440,6 +486,7 @@ do  -- QuestDataProvider
         end
     end
 
+    -- Mark a quest so its details can be captured when its detail frame opens.
     function QuestDataProvider:RequestQuestDetail(questID)
         if not IsValidQuestID(questID) then
             return
@@ -449,12 +496,14 @@ do  -- QuestDataProvider
         self.questQueue[questID] = true;
     end
 
+    -- Check whether a quest is waiting for its detail data to be captured.
     function QuestDataProvider:IsQueuingQuest(questID)
         return questID and self.questQueue and self.questQueue[questID] or false
     end
 end
 
 do  -- Module Control
+    -- Enable or disable the Skimmer's ownership of dialogue events.
     function DUI_ToggleSkimmer(state)
         if state then
             EL:ListenEvents(true);
@@ -469,7 +518,8 @@ do  -- Module Control
         end
     end
 
-    if false then
+    -- Optional delayed activation used during local development.
+    if false and C_Timer and C_Timer.After then
         C_Timer.After(2, function()
             DUI_ToggleSkimmer(true);
         end)
