@@ -149,9 +149,8 @@ do  --AsyncCallback
 
     --LoadQuestAPI is not available in 60 Classic
     --In this case we will run all callbacks when the time is up
-    EL.LoadQuest = C_QuestLog.RequestLoadQuestByID;
-    EL.LoadItem = C_Item.RequestLoadItemDataByID;
-    EL.LoadSpell = C_Spell.RequestLoadSpellData;
+    EL.LoadQuest = C_QuestLog and C_QuestLog.RequestLoadQuestByID;
+    EL.LoadSpell = C_Spell and C_Spell.RequestLoadSpellData;
 
     function EL:RunAllCallbacks(list)
         for id, callbacks in pairs(list) do
@@ -271,16 +270,62 @@ do  --AsyncCallback
         EL:SetScript("OnUpdate", EL.OnUpdate);
     end
 
-    function CallbackRegistry:LoadItem(id, callback, oneTime)
-        EL:AddCallback("itemCallbacks", id, callback, oneTime);
-        if EL.LoadItem then
-            EL:RegisterEvent("ITEM_DATA_LOAD_RESULT");
-            EL.LoadItem(id);
-        else
-            EL.runCallbackAfter = true;
+    local ItemLoader = CreateFrame("Frame");
+    local itemInfoPollInterval = 0.1;
+    local itemInfoTimeout = 5;
+
+    ItemLoader.pending = {};
+    ItemLoader.elapsed = 0;
+
+    function ItemLoader:OnUpdate(elapsed)
+        self.elapsed = self.elapsed + elapsed;
+
+        if self.elapsed < itemInfoPollInterval then
+            return;
         end
-        EL.t = 0;
-        EL:SetScript("OnUpdate", EL.OnUpdate);
+
+        self.elapsed = 0;
+        local now = GetTime();
+
+        for id, request in pairs(self.pending) do
+            local name = GetItemInfo(id);
+
+            if name or now >= request.deadline then
+                self.pending[id] = nil;
+
+                for _, callback in ipairs(request.callbacks) do
+                    callback(id);
+                end
+            end
+        end
+
+        if not next(self.pending) then
+            self:SetScript("OnUpdate", nil);
+        end
+    end
+
+    function CallbackRegistry:LoadItem(id, callback, oneTime)
+        local name = GetItemInfo(id);
+
+        if name then
+            callback(id);
+            return;
+        end
+
+        local request = ItemLoader.pending[id];
+
+        if not request then
+            request = {
+                deadline = GetTime() + itemInfoTimeout,
+                callbacks = {},
+            };
+
+            ItemLoader.pending[id] = request;
+        end
+
+        tinsert(request.callbacks, callback);
+        GetItemInfo(id);
+        ItemLoader:SetScript("OnUpdate", ItemLoader.OnUpdate);
     end
 
     function CallbackRegistry:LoadSpell(id, callback, oneTime)
