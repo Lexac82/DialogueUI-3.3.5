@@ -63,7 +63,7 @@ local DefaultValues = {
     ForceGossip = false,
         ForceGossipSkipGameObject = false,
     ShowDialogHint = true,
-    DisableUIMotion = false,
+    DisableDUIInInstance = false,
 
     NameplateDialogEnabled = false,             --Experimental. Not in the settings
 
@@ -73,7 +73,7 @@ local DefaultValues = {
         TTSUseHotkey = true,    --Default key R
         TTSAutoPlay = false,
             TTSSkipRecent = false,              --Skip recently read texts
-            TTSAutoPlayDelay = false,            --Add a delay before starting auto play in case the NPC is speaking
+            TTSAutoPlayDelay = false,           --Add a delay before starting auto play in case the NPC is speaking
         TTSAutoStop = true,     --Stop when leaving
         TTSStopOnNew = true,    --Stop when reading new quest
         TTSVoiceMale = 0,       --0: System default
@@ -199,6 +199,7 @@ addon.SetTutorialRead = SetTutorialRead;
 local EL = CreateFrame("Frame");
 EL:RegisterEvent("ADDON_LOADED");
 EL:RegisterEvent("PLAYER_ENTERING_WORLD");
+EL:RegisterEvent("LOADING_SCREEN_DISABLED");
 
 EL:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
@@ -215,6 +216,8 @@ EL:SetScript("OnEvent", function(self, event, ...)
         SetDBValue(dbKey, DB[dbKey]);
 
         addon.CallbackRegistry:Trigger("PLAYER_ENTERING_WORLD");
+    elseif event == "LOADING_SCREEN_DISABLED" then
+        self:UnregisterEvent(event);
         addon.CallbackRegistry:Trigger("InitialLoadingComplete");
     end
 end);
@@ -257,6 +260,31 @@ local function GetDBBool(dbKey)
     end
 end
 addon.GetDBBool = GetDBBool;
+
+
+local function FlipDBBool(dbKey, userInput)
+    if DB then
+        SetDBValue(dbKey, not GetDBBool(dbKey), userInput)
+    end
+end
+addon.FlipDBBool = FlipDBBool;
+
+
+local function IsDBValue(dbKey, value)
+    if DB then
+        return DB[dbKey] == value
+    end
+end
+addon.IsDBValue = IsDBValue;
+
+
+local function ResetTutorials()
+    for _, flag in pairs(TutorialFlags) do
+        local dbKey = "Tutorial_"..flag;
+        DB[dbKey] = nil;
+    end
+end
+addon.ResetTutorials = ResetTutorials;
 
 
 do
