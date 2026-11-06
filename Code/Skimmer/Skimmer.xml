@@ -1,14 +1,19 @@
-<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/..\..\Blizzard_SharedXML\UI.xsd">
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.blizzard.com/wow/ui/..\..\Blizzard_SharedXML\UI.xsd">
+
     <Script file="Skimmer_Base.lua"/>
     <Script file="Skimmer_Template.lua"/>
     <Script file="Skimmer_UI.lua"/>
 
-    <!-- HINT: Avoid the modern mixin attribute; apply DUISkimmerOptionMixin in Lua after CreateFrame. -->
+    <!-- Use a virtual template without the modern mixin attribute. -->
+    <!-- The mixin is applied in Lua when the button is created. -->
     <Frame name="DUISkimmerOptionTemplate" virtual="true">
         <Size x="280" y="80"/>
+
         <Layers>
             <Layer level="OVERLAY">
-                <!-- HINT: Use explicit child names rather than parentKey for legacy XML compatibility. -->
+                <!-- These names become FrameNameTitle, FrameNameDesc, FrameNameTestRewardDisplay -->
                 <FontString name="$parentTitle" inherits="GameFontNormal" justifyH="LEFT" justifyV="TOP" maxLines="1">
                     <Anchors>
                         <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT" x="8" y="-8"/>
