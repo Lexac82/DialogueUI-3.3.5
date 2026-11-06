@@ -147,10 +147,6 @@ end
 do  --AsyncCallback
     local EL = CreateFrame("Frame");
 
-    --LoadQuestAPI is not available in 60 Classic
-    --In this case we will run all callbacks when the time is up
-    EL.LoadSpell = C_Spell and C_Spell.RequestLoadSpellData;
-
     function EL:RunAllCallbacks(list)
         for id, callbacks in pairs(list) do
             for _, callbackInfo in ipairs(callbacks) do
@@ -170,8 +166,6 @@ do  --AsyncCallback
             list = self.questCallbacks;
         elseif event == "ITEM_DATA_LOAD_RESULT" then
             list = self.itemCallbacks;
-        elseif event == "SPELL_DATA_LOAD_RESULT" then
-            list = self.spellCallbacks;
         elseif event == "TOOLTIP_DATA_UPDATE" then
             list = self.npcCallbacks;
             success = true;
@@ -214,14 +208,6 @@ do  --AsyncCallback
                 end
                 self:RunAllCallbacks(self.itemCallbacks);
                 self.itemCallbacks = nil;
-            end
-
-            if self.spellCallbacks then
-                if self.LoadSpell then
-                    self:UnregisterEvent("SPELL_DATA_LOAD_RESULT");
-                end
-                self:RunAllCallbacks(self.spellCallbacks);
-                self.spellCallbacks = nil;
             end
 
             if self.npcCallbacks then
@@ -371,15 +357,7 @@ do  --AsyncCallback
     end
 
     function CallbackRegistry:LoadSpell(id, callback, oneTime)
-        EL:AddCallback("spellCallbacks", id, callback, oneTime);
-        if EL.LoadSpell then
-            EL:RegisterEvent("SPELL_DATA_LOAD_RESULT");
-            EL.LoadSpell(id);
-        else
-            EL.runCallbackAfter = true;
-        end
-        EL.t = 0;
-        EL:SetScript("OnUpdate", EL.OnUpdate);
+        callback(id);
     end
 
 
