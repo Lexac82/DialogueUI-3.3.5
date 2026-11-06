@@ -1,5 +1,6 @@
 local _, addon = ...
 
+-- Central registry for event-driven callbacks used across the addon.
 local CallbackRegistry = {};
 CallbackRegistry.events = {};
 addon.CallbackRegistry = CallbackRegistry;
@@ -15,6 +16,11 @@ local ipairs = ipairs;
         2. Method owner:func()
 --]]
 
+-- Register a callback for a named event.
+-- Supported signatures:
+--   Register(event, func)
+--   Register(event, func, owner)
+--   Register(event, "MethodName", owner)
 function CallbackRegistry:Register(event, func, owner, prioritized)
     if not self.events[event] then
         self.events[event] = {};
@@ -35,6 +41,8 @@ function CallbackRegistry:Register(event, func, owner, prioritized)
     end
 end
 
+-- Trigger all callbacks registered for a specific event.
+-- This supports both plain functions and object methods.
 function CallbackRegistry:Trigger(event, ...)
     if self.events[event] then
         for _, cb in ipairs(self.events[event]) do
@@ -51,6 +59,8 @@ function CallbackRegistry:Trigger(event, ...)
     end
 end
 
+-- Remove one specific callback instance from a named event.
+-- This can match a plain function or a method on a given owner object.
 function CallbackRegistry:UnregisterCallback(event, callback, owner)
     if self.events[event] then
         local callbacks = self.events[event];
@@ -90,22 +100,28 @@ function CallbackRegistry:UnregisterCallback(event, callback, owner)
     end
 end
 
+-- Remove all callbacks for one event.
 function CallbackRegistry:UnregisterEvent(event)
     self.events[event] = nil;
 end
 
+-- Convenience wrapper for tutorial-related events.
 function CallbackRegistry:RegisterTutorial(tutorialFlag, func, owner)
     local event = "Tutorial."..tutorialFlag;
     self:Register(event, func, owner);
 end
 
+-- Register a callback that should run when the initial loading phase is considered complete.
 function CallbackRegistry:RegisterLoadingCompleteCallback(func, owner, prioritized)
     self:Register("InitialLoadingComplete", func, owner, prioritized)
 end
 
 
+-- Helper frame used to delay execution of callbacks until the next OnUpdate tick.
+-- This is useful when a callback should run after the current frame or after a short deferral.
 local Processor = CreateFrame("Frame");
 
+-- Run all delayed callbacks queued during the previous frame.
 local function Processor_OnUpdate(self, elapsed)
     self:SetScript("OnUpdate", nil);
     if self.triggerQueue and self.anyDelayedTrigger then
@@ -117,6 +133,8 @@ local function Processor_OnUpdate(self, elapsed)
     end
 end
 
+-- Queue an event callback to be executed on the next update cycle.
+-- This is mainly used for safety workarounds when a regular immediate trigger would be too early.
 function CallbackRegistry:TriggerOnNextUpdate(event, ...)
     --Use Case: in case Lua error appears and clogs other important processes
     --Currently used by HelpTip
@@ -131,6 +149,7 @@ function CallbackRegistry:TriggerOnNextUpdate(event, ...)
 end
 
 
+-- Provide public UIParent visibility events as addon callbacks.
 do  --UIParent OnShow/OnHide
     local frame = CreateFrame("Frame", nil, UIParent);
 
@@ -144,9 +163,18 @@ do  --UIParent OnShow/OnHide
 end
 
 
+-- Async callback machinery for data that loads in the background.
+-- This block handles quest, item, spell and NPC data requests with delayed completion notification.
 do  --AsyncCallback
     local EL = CreateFrame("Frame");
 
+    -- LoadQuestAPI is not available in 60 Classic
+    -- In this case we will run all callbacks when the time is up
+    EL.LoadQuest = C_QuestLog.RequestLoadQuestByID;
+    EL.LoadItem = C_Item.RequestLoadItemDataByID;
+    EL.LoadSpell = C_Spell.RequestLoadSpellData;
+
+    -- Execute every callback stored for an object ID in a pending list.
     function EL:RunAllCallbacks(list)
         for id, callbacks in pairs(list) do
             for _, callbackInfo in ipairs(callbacks) do
@@ -158,6 +186,7 @@ do  --AsyncCallback
         end
     end
 
+    -- Handle data-load completion events and invoke the matching callbacks.
     function EL:OnEvent(event, ...)
         local id, success = ...
         local list;
@@ -166,6 +195,11 @@ do  --AsyncCallback
             list = self.questCallbacks;
         elseif event == "ITEM_DATA_LOAD_RESULT" then
             list = self.itemCallbacks;
+        elseif event == "SPELL_DATA_LOAD_RESULT" then
+            list = self.spellCallbacks;
+        elseif event == "TOOLTIP_DATA_UPDATE" then
+            list = self.npcCallbacks;
+            success = true;
         end
 
         if list and id and success then
@@ -183,6 +217,7 @@ do  --AsyncCallback
     end
     EL:SetScript("OnEvent", EL.OnEvent);
 
+    -- Countdown timer used to flush pending data callbacks after a short timeout.
     function EL:OnUpdate(elapsed)
         self.t = self.t + elapsed;
         if self.t > 0.5 then
@@ -206,9 +241,26 @@ do  --AsyncCallback
                 self:RunAllCallbacks(self.itemCallbacks);
                 self.itemCallbacks = nil;
             end
+
+            if self.spellCallbacks then
+                if self.LoadSpell then
+                    self:UnregisterEvent("SPELL_DATA_LOAD_RESULT");
+                end
+                self:RunAllCallbacks(self.spellCallbacks);
+                self.spellCallbacks = nil;
+            end
+
+            if self.npcCallbacks then
+                if self.LoadNPC then
+                    self:UnregisterEvent("TOOLTIP_DATA_UPDATE");
+                end
+                self:RunAllCallbacks(self.npcCallbacks);
+                self.npcCallbacks = nil;
+            end
         end
     end
 
+    -- Store a callback for a given data ID in the appropriate pending list.
     function EL:AddCallback(key, id, callback, oneTime)
         if not self[key] then
             self[key] = {};
@@ -232,208 +284,102 @@ do  --AsyncCallback
     end
 
 
-    local QuestLoader = CreateFrame("Frame");
-    local questInfoPollInterval = 0.1;
-    local questInfoTimeout = 5;
-
-    QuestLoader.pending = {};
-    QuestLoader.elapsed = 0;
-
-    function QuestLoader:OnUpdate(elapsed)
-        self.elapsed = self.elapsed + elapsed;
-
-        if self.elapsed < questInfoPollInterval then
-            return;
-        end
-
-        self.elapsed = 0;
-        local now = GetTime();
-
-        for id, request in pairs(self.pending) do
-            local questIndex = GetQuestLogIndexByID and GetQuestLogIndexByID(id);
-
-            if questIndex or now >= request.deadline then
-                self.pending[id] = nil;
-
-                for _, callback in ipairs(request.callbacks) do
-                    callback(id);
-                end
-            end
-        end
-
-        if not next(self.pending) then
-            self:SetScript("OnUpdate", nil);
-        end
-    end
-
+    -- Quest data is often not instantly available on older clients, so we poll until it appears.
+    -- This keeps the data-loader compatible with WotLK-era APIs while still supporting async behavior.
     function CallbackRegistry:LoadQuest(id, callback, oneTime)
-        if GetQuestLogIndexByID and GetQuestLogIndexByID(id) then
-            callback(id);
-            return;
+        EL:AddCallback("questCallbacks", id, callback, oneTime);
+        if EL.LoadQuest then
+            EL:RegisterEvent("QUEST_DATA_LOAD_RESULT");
+            EL.LoadQuest(id);
+        else
+            EL.runCallbackAfter = true;
         end
-
-        local request = QuestLoader.pending[id];
-
-        if not request then
-            request = {
-                deadline = GetTime() + questInfoTimeout,
-                callbacks = {},
-            };
-
-            QuestLoader.pending[id] = request;
-        end
-
-        tinsert(request.callbacks, callback);
-        QuestLoader:SetScript("OnUpdate", QuestLoader.OnUpdate);
+        EL.t = 0;
+        EL:SetScript("OnUpdate", EL.OnUpdate);
     end
 
-    local ItemLoader = CreateFrame("Frame");
-    local itemInfoPollInterval = 0.1;
-    local itemInfoTimeout = 5;
-
-    ItemLoader.pending = {};
-    ItemLoader.elapsed = 0;
-
-    function ItemLoader:OnUpdate(elapsed)
-        self.elapsed = self.elapsed + elapsed;
-
-        if self.elapsed < itemInfoPollInterval then
-            return;
-        end
-
-        self.elapsed = 0;
-        local now = GetTime();
-
-        for id, request in pairs(self.pending) do
-            local name = GetItemInfo(id);
-
-            if name or now >= request.deadline then
-                self.pending[id] = nil;
-
-                for _, callback in ipairs(request.callbacks) do
-                    callback(id);
-                end
-            end
-        end
-
-        if not next(self.pending) then
-            self:SetScript("OnUpdate", nil);
-        end
-    end
-
+    -- Item data is fetched similarly to quests.
     function CallbackRegistry:LoadItem(id, callback, oneTime)
-        local name = GetItemInfo(id);
-
-        if name then
-            callback(id);
-            return;
+        EL:AddCallback("itemCallbacks", id, callback, oneTime);
+        if EL.LoadItem then
+            EL:RegisterEvent("ITEM_DATA_LOAD_RESULT");
+            EL.LoadItem(id);
+        else
+            EL.runCallbackAfter = true;
         end
-
-        local request = ItemLoader.pending[id];
-
-        if not request then
-            request = {
-                deadline = GetTime() + itemInfoTimeout,
-                callbacks = {},
-            };
-
-            ItemLoader.pending[id] = request;
-        end
-
-        tinsert(request.callbacks, callback);
-        GetItemInfo(id);
-        ItemLoader:SetScript("OnUpdate", ItemLoader.OnUpdate);
+        EL.t = 0;
+        EL:SetScript("OnUpdate", EL.OnUpdate);
     end
 
+    -- Spell data is handled through the same event-driven pattern.
     function CallbackRegistry:LoadSpell(id, callback, oneTime)
-        callback(id);
+        EL:AddCallback("spellCallbacks", id, callback, oneTime);
+        if EL.LoadSpell then
+            EL:RegisterEvent("SPELL_DATA_LOAD_RESULT");
+            EL.LoadSpell(id);
+        else
+            EL.runCallbackAfter = true;
+        end
+        EL.t = 0;
+        EL:SetScript("OnUpdate", EL.OnUpdate);
     end
 
-    local NPCScanTooltip;
-    local function GetNPCNameFromTooltip(creatureID)
-        if not NPCScanTooltip then
-            NPCScanTooltip = CreateFrame("GameTooltip", "DialogueUINPCScanTooltip", UIParent, "GameTooltipTemplate");
-            NPCScanTooltip:SetOwner(UIParent, "ANCHOR_NONE");
-        end
 
-        local tooltipText = _G["DialogueUINPCScanTooltipTextLeft1"];
-        local hyperlinkFormats = {
-            "unit:0:"..creatureID..":0:0:0",
-            "unit:Creature-0-0-0-0-"..creatureID,
-        };
-
-        for _, hyperlink in ipairs(hyperlinkFormats) do
-            NPCScanTooltip:ClearLines();
-            NPCScanTooltip:SetHyperlink(hyperlink);
-
-            local name = tooltipText and tooltipText:GetText();
-            if name and name ~= "" and name ~= RETRIEVING_ITEM_INFO then
-                return name;
-            end
-        end
-    end
-
-    local NPCLoader = CreateFrame("Frame");
-    local npcInfoPollInterval = 0.1;
-    local npcInfoTimeout = 5;
-
-    NPCLoader.pending = {};
-    NPCLoader.elapsed = 0;
-
-    function NPCLoader:OnUpdate(elapsed)
-        self.elapsed = self.elapsed + elapsed;
-
-        if self.elapsed < npcInfoPollInterval then
-            return;
-        end
-
-        self.elapsed = 0;
-        local now = GetTime();
-
-        for creatureID, request in pairs(self.pending) do
-            local name = GetNPCNameFromTooltip(creatureID);
-
-            if name or now >= request.deadline then
-                self.pending[creatureID] = nil;
-
-                if name then
-                    for _, callback in ipairs(request.callbacks) do
+    -- NPC names are resolved through a hidden GameTooltip in WotLK.
+    -- Retail's modern tooltip APIs do not exist here, so this compatibility path is used instead.
+    if C_TooltipInfo then
+        function CallbackRegistry:LoadNPC(creatureID, callback, isRequery)
+            local tooltipData = addon.TooltipAPI.GetHyperlink("unit:Creature-0-0-0-0-"..creatureID);
+            local dataInstanceID, newCallback;
+            if tooltipData and tooltipData.lines then
+                local name = tooltipData.lines[1].leftText;
+                if name and name ~= "" then
+                    callback(creatureID, name);
+                else
+                    dataInstanceID = tooltipData.dataInstanceID;
+                    newCallback = function()
+                        local tooltipData = addon.TooltipAPI.GetHyperlink("unit:Creature-0-0-0-0-"..creatureID);
+                        local name = tooltipData.lines[1].leftText;
+                        if name and name ~= "" then
+                            callback(creatureID, name);
+                        end
+                    end
+                end
+            elseif not isRequery then
+                dataInstanceID = 0;
+                newCallback = function()
+                    local tooltipData = addon.TooltipAPI.GetHyperlink("unit:Creature-0-0-0-0-"..creatureID);
+                    local name = tooltipData and tooltipData.lines and tooltipData.lines[1].leftText;
+                    if name and name ~= "" then
                         callback(creatureID, name);
                     end
                 end
             end
+
+            if dataInstanceID and newCallback then
+                EL:AddCallback("npcCallbacks", dataInstanceID, newCallback);
+                EL:RegisterEvent("TOOLTIP_DATA_UPDATE");
+                if not EL.t then
+                    EL.t = 0;
+                end
+                if EL.t > 0 then
+                    --Extend the shutdown countdown because we usually acquire NPC name during log-in
+                    EL.t = -0.5;
+                end
+                EL:SetScript("OnUpdate", EL.OnUpdate);
+            end
         end
+    else
+        -- Fallback path for clients without modern tooltip data helpers.
+        function CallbackRegistry:LoadNPC()
 
-        if not next(self.pending) then
-            self:SetScript("OnUpdate", nil);
         end
-    end
-
-    function CallbackRegistry:LoadNPC(creatureID, callback, isRequery)
-        local name = GetNPCNameFromTooltip(creatureID);
-
-        if name then
-            callback(creatureID, name);
-            return;
-        end
-
-        local request = NPCLoader.pending[creatureID];
-
-        if not request then
-            request = {
-                deadline = GetTime() + npcInfoTimeout,
-                callbacks = {},
-            };
-
-            NPCLoader.pending[creatureID] = request;
-        end
-
-        tinsert(request.callbacks, callback);
-        NPCLoader:SetScript("OnUpdate", NPCLoader.OnUpdate);
     end
 end
 
 
+-- Public callback bridge used by external addon interfaces.
+-- This section is intentionally conservative and not fully implemented yet.
 do  --Public methods for addon compatibility (NOT IMPLEMENTED)
 
     --Private
@@ -441,6 +387,7 @@ do  --Public methods for addon compatibility (NOT IMPLEMENTED)
     local EventObject = {};
     local PublicCallbacks = {};
 
+    -- Register a supported public callback name and its owner getter.
     local function AddSupportedPublicCallback(event, objectGetter)
         IsCallbackAllowed[event] = true;
         if objectGetter then
@@ -454,6 +401,7 @@ do  --Public methods for addon compatibility (NOT IMPLEMENTED)
     addon.AddSupportedPublicCallback = AddSupportedPublicCallback;
 
 
+    -- Trigger a callback event for third-party addon integrations.
     function CallbackRegistry:TriggerExternalEvent(event, ...)
         if IsCallbackAllowed[event] and PublicCallbacks[event] then
             local objectGetter = EventObject[event];
@@ -471,10 +419,11 @@ do  --Public methods for addon compatibility (NOT IMPLEMENTED)
 
 
     --Public
+    -- Register a callback for a public event without requiring a direct owner object.
     local function RegisterCallback(event, callback)
         --payloads: isRegistered, isNew
 
-        if event and type(event) == "string" and callback and type(callback) == "function" then
+        if event and type(event) == \"string\" and callback and type(callback) == \"function\" then
             if not PublicCallbacks[event] then
                 PublicCallbacks[event] = {};
             end
