@@ -149,7 +149,6 @@ do  --AsyncCallback
 
     --LoadQuestAPI is not available in 60 Classic
     --In this case we will run all callbacks when the time is up
-    EL.LoadQuest = C_QuestLog and C_QuestLog.RequestLoadQuestByID;
     EL.LoadSpell = C_Spell and C_Spell.RequestLoadSpellData;
 
     function EL:RunAllCallbacks(list)
@@ -258,16 +257,59 @@ do  --AsyncCallback
     end
 
 
-    function CallbackRegistry:LoadQuest(id, callback, oneTime)
-        EL:AddCallback("questCallbacks", id, callback, oneTime);
-        if EL.LoadQuest then
-            EL:RegisterEvent("QUEST_DATA_LOAD_RESULT");
-            EL.LoadQuest(id);
-        else
-            EL.runCallbackAfter = true;
+    local QuestLoader = CreateFrame("Frame");
+    local questInfoPollInterval = 0.1;
+    local questInfoTimeout = 5;
+
+    QuestLoader.pending = {};
+    QuestLoader.elapsed = 0;
+
+    function QuestLoader:OnUpdate(elapsed)
+        self.elapsed = self.elapsed + elapsed;
+
+        if self.elapsed < questInfoPollInterval then
+            return;
         end
-        EL.t = 0;
-        EL:SetScript("OnUpdate", EL.OnUpdate);
+
+        self.elapsed = 0;
+        local now = GetTime();
+
+        for id, request in pairs(self.pending) do
+            local questIndex = GetQuestLogIndexByID and GetQuestLogIndexByID(id);
+
+            if questIndex or now >= request.deadline then
+                self.pending[id] = nil;
+
+                for _, callback in ipairs(request.callbacks) do
+                    callback(id);
+                end
+            end
+        end
+
+        if not next(self.pending) then
+            self:SetScript("OnUpdate", nil);
+        end
+    end
+
+    function CallbackRegistry:LoadQuest(id, callback, oneTime)
+        if GetQuestLogIndexByID and GetQuestLogIndexByID(id) then
+            callback(id);
+            return;
+        end
+
+        local request = QuestLoader.pending[id];
+
+        if not request then
+            request = {
+                deadline = GetTime() + questInfoTimeout,
+                callbacks = {},
+            };
+
+            QuestLoader.pending[id] = request;
+        end
+
+        tinsert(request.callbacks, callback);
+        QuestLoader:SetScript("OnUpdate", QuestLoader.OnUpdate);
     end
 
     local ItemLoader = CreateFrame("Frame");
