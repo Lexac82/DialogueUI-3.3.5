@@ -11,13 +11,17 @@ local FadeHelper = addon.UIParentFadeHelper;
 local Round = API.Round;
 local FadeFrame = API.UIFrameFade;
 
-
+-- ----
+-- 3.3.5 compatibility: Keep the event listener and cache frame declarations minimal and classic-safe.
+-- ----
 local MainFrame;
 local EL = CreateFrame("Frame");    --EventListener
 local Formatter = {};               --Format content, convert html to fontstring
 local Cache = CreateFrame("Frame"); --Cache the whole book when opened
 
-
+-- ----
+-- 3.3.5 compatibility: Several WoW APIs exist only on some clients; guard them before use.
+-- ----
 local InCombatLockdown = InCombatLockdown;
 local UnitGUID = UnitGUID;
 local IsShiftKeyDown = IsShiftKeyDown;
@@ -25,8 +29,11 @@ local GetBindingAction = GetBindingAction;
 local match = string.match;
 local find = string.find;
 local gsub = string.gsub;
-local GetItemIDByGUID = C_Item.GetItemIDByGUID;     --Not in Classic
 
+-- 3.3.5 compatibility: C_Item.GetItemIDByGUID is not available on the classic/WotLK client.
+local GetItemIDByGUID = (C_Item and C_Item.GetItemIDByGUID) or nil;
+
+-- Legacy ItemText globals are still valid for this book UI.
 local CloseItemText = CloseItemText;
 local ItemTextGetCreator = ItemTextGetCreator;
 local ItemTextGetItem = ItemTextGetItem;
@@ -36,20 +43,13 @@ local ItemTextGetPage = ItemTextGetPage;
 local ItemTextHasNextPage = ItemTextHasNextPage;
 local ItemTextPrevPage = ItemTextPrevPage;
 local ItemTextNextPage = ItemTextNextPage;
-local ItemTextIsFullPage = ItemTextIsFullPage;  --Retail? material == "ParchmentLarge"
-
-
+local ItemTextIsFullPage = ItemTextIsFullPage;
 
 -- User Settings
-
-------------------
-
-
 local PIXEL_SCALE = 0.53333;
 local FRAME_SIZE_MULTIPLIER = 1.0;  --(See DialogueUI.lua) 1.1 / 1.25
 local WOW_PAGE_WIDTH = 412; --ParchmentLarge
 local OTHER_CONTENT_ALPHA = 0.4;
-
 
 local TagFonts = {
     ["p"] = "DUIFont_Book_Paragraph",
@@ -97,6 +97,7 @@ local RawSize = {   --Unit: Pixel
 
 local ConvertedSize = {};
 
+-- Calculates the scaled frame and content dimensions used by the book UI.
 local function CalculateSizeData()
     local a = PIXEL_SCALE * FRAME_SIZE_MULTIPLIER;
     for k, v in pairs(RawSize) do
@@ -106,12 +107,16 @@ local function CalculateSizeData()
     ConvertedSize.FRAME_SHRINK_RANGE = a * (RawSize.FRAME_HEIGHT_MAX - RawSize.FRAME_TOP_HEIGHT - RawSize.FRAME_BOTTOM_HEIGHT);
     ConvertedSize.CONTENT_WIDTH = a * (RawSize.FRAME_WIDTH - 2*RawSize.PADDING_H);
 
-    Formatter.UtilityFontString:SetWidth(ConvertedSize.CONTENT_WIDTH);
+    -- 3.3.5 compatibility: Make sure the formatter utility font exists before using it.
+    if Formatter.UtilityFontString then
+        Formatter.UtilityFontString:SetWidth(ConvertedSize.CONTENT_WIDTH);
+    end
 end
 
-
+-- Extracts the object type and ID from a GUID when the client supports it.
 local function GetObjectTypeAndID(guid)
-    if not API.canaccessvalue(guid) then
+    -- 3.3.5 compatibility: Avoid calling API.canaccessvalue if it is unavailable.
+    if not API.canaccessvalue or not API.canaccessvalue(guid) then
         return;
     end
 
@@ -126,12 +131,19 @@ local function GetObjectTypeAndID(guid)
             local itemID = GetItemIDByGUID(guid);
             return type, itemID, itemID
         else
+            -- 3.3.5 compatibility: Retail-only GUID helper is missing; fall back to the GUID itself.
             return type, guid
         end
     end
 end
 
+-- Checks whether the current book has multiple pages.
 local function IsMultiPageBook()
+    -- 3.3.5 compatibility: ItemText APIs may still exist, but the next-page check should be guarded.
+    if not ItemTextGetPage or not ItemTextHasNextPage then
+        return false
+    end
+
     local page = ItemTextGetPage();
     local hasNext = ItemTextHasNextPage();
     return (page == 1 and hasNext) or (page > 1)
@@ -141,55 +153,54 @@ end
 do  --Cache
     Cache.data = {};
 
+    -- Clears the cached book and stops any pending page or layout updates.
     function Cache:ClearObjectCache()
         self.activeData = nil;
         self.fullyCached = false;
+        self.needTurnBack = false;
+        self.spacingPending = nil;
+        self.nextContentIsPageStart = nil;
         self:SetScript("OnUpdate", nil);
     end
 
+    -- Starts a fresh cache record for the currently opened book or readable item.
     function Cache:SetActiveObject(objectType, objectID, itemID)
-        --objectType: item, npc
-        --objectID: itemID, creatureID
-        --itemID: Nilable, retail only
-
         self:SetScript("OnUpdate", nil);
+
+        -- 3.3.5 compatibility: Clear transient state before beginning to cache another book.
+        self.spacingPending = nil;
+        self.nextContentIsPageStart = nil;
+        self.pageStartOffset = nil;
 
         local isObjectChanged;
         local identifier;
         local objectLocation;
 
         if objectType and objectID then
-            identifier = objectType..objectID;
+            identifier = objectType .. ":" .. tostring(objectID);
             isObjectChanged = identifier ~= self.identifier;
             self.identifier = identifier;
-            if objectType == "GameObject" then
+
+            if objectType == "GameObject" and BookComponent.GetPlayerLocation then
                 objectLocation = BookComponent:GetPlayerLocation();
             end
         else
-            identifier = "unknown";
             isObjectChanged = true;
             self.identifier = nil;
         end
 
+        local title = ItemTextGetItem and ItemTextGetItem();
+
         local data = {
-            pageTexts = {},         --[page] = rawText
+            pageTexts = {},         -- [page] = rawText
             fullyCached = false,
             maxPage = 1,
-            pageStartOffset = {},   --[page] = offsetY,
+            pageStartOffset = {},   -- [page] = offsetY
             maxContentIndex = 0,
             location = objectLocation,
-            title = ItemTextGetItem(),
+            title = title,
             itemID = itemID,
-            formattedContent = {
-                --[index] = {
-                --  text = text,
-                --  fontTag = tag,
-                --  image = image,
-                --  width = width, height =  height\
-                --  align = number (1 left 2 center 3 right)
-                --  posY = offsetY
-                --}
-            },
+            formattedContent = {},
         };
 
         self.activeData = data;
@@ -199,69 +210,99 @@ do  --Cache
         return isObjectChanged
     end
 
+    -- Returns the saved scroll position for the currently identified book.
     function Cache:GetLastPagePosition()
-        if not (self.identifier and self.pagePositions) then return end;
+        if not (self.identifier and self.pagePositions) then
+            return
+        end
+
         return self.pagePositions[self.identifier]
     end
 
+    -- Saves the current scroll position for the active book.
     function Cache:SavePagePosition()
-        if not self.identifier then return end;
+        if not self.identifier or not MainFrame or not MainFrame.ScrollFrame then
+            return
+        end
+
         if not self.pagePositions then
             self.pagePositions = {};
         end
 
-        local id = self.identifier;
         local offset = MainFrame.ScrollFrame:GetVerticalScroll();
-        --ScrollOffset is affected by FrameScale and FontSize, we clear pagePositions if these parameters changed
-        self.pagePositions[id] = offset;
+        -- Scroll positions may need resetting if frame scale or font size changes.
+        self.pagePositions[self.identifier] = offset;
     end
 
+    -- Reports whether all pages of the active book have been cached.
     function Cache:IsCurrentObjectFullyCached()
         return self.fullyCached
     end
 
+    -- Reports whether the active cache contains multiple pages.
     function Cache:IsMultiPageBook()
         if self.activeData then
             return self.activeData.maxPage > 1
-        else
-            IsMultiPageBook();
         end
+
+        -- 3.3.5 compatibility: Return the legacy ItemText API result rather than discarding it.
+        return IsMultiPageBook()
     end
 
+    -- Returns the cached page count, or one when no book is active.
     function Cache:GetMaxPage()
         return self.activeData and self.activeData.maxPage or 1
     end
 
+    -- Returns the active book's location, if available.
     function Cache:GetBookLocation()
         return self.activeData and self.activeData.location
     end
 
+    -- Returns the active readable item's ID, if available.
     function Cache:GetCurrentItemID()
         return self.activeData and self.activeData.itemID
     end
 
+    -- Advances the in-game readable to its next page after a short delay.
     function Cache:OnUpdate_TurnNextPage(elapsed)
         self.t = self.t + elapsed;
         if self.t > 0.016 then
             self.t = 0;
             self:SetScript("OnUpdate", nil);
-            ItemTextNextPage();
+
+            -- 3.3.5 compatibility: ItemTextNextPage is a legacy global; guard it before calling.
+            if ItemTextNextPage then
+                ItemTextNextPage();
+            end
+
             self.needTurnBack = false;
         end
     end
 
+    -- Schedules an in-game turn to the next page.
     function Cache:RequestTurnNextPage()
         self.t = 0;
         self:SetScript("OnUpdate", self.OnUpdate_TurnNextPage);
     end
 
+    -- Returns the in-game readable to its first page, then lays out the cached book.
     function Cache:OnUpdate_TurnPrevPage(elapsed)
         self.t = self.t + elapsed;
         if self.t > 0.016 then
             self.t = 0;
+
+            -- 3.3.5 compatibility: Guard legacy ItemText functions in case the client lacks them.
+            if not ItemTextPrevPage or not ItemTextGetPage then
+                self:SetScript("OnUpdate", nil);
+                self.needTurnBack = false;
+                return
+            end
+
             ItemTextPrevPage();
             local page = ItemTextGetPage();
-            if page <= 1 then
+
+            if not page or page <= 1 then
                 self:SetScript("OnUpdate", nil);
                 self.needTurnBack = false;
                 self:BeginCalculateTextHeight();
@@ -269,129 +310,181 @@ do  --Cache
         end
     end
 
+    -- Schedules an in-game turn to the previous page.
     function Cache:RequestTurnPrevPage()
         self.t = 0;
         self:SetScript("OnUpdate", self.OnUpdate_TurnPrevPage);
     end
 
+    -- Caches the current in-game page and advances or starts layout when complete.
     function Cache:CacheCurrentPage()
+        if not self.activeData or not ItemTextGetPage or not ItemTextGetText then
+            return
+        end
+
         local page = ItemTextGetPage();
-        local rawText = ItemTextGetText(page);  --No argument required. This for test purpose.
+        if not page then
+            return
+        end
+
+        local rawText = ItemTextGetText(page);
+        if rawText == nil then
+            return
+        end
+
         self.activeData.pageTexts[page] = rawText;
 
-        if ItemTextHasNextPage() then
+        -- 3.3.5 compatibility: ItemTextHasNextPage is a legacy global and may be absent.
+        local hasNextPage = ItemTextHasNextPage and ItemTextHasNextPage();
+
+        if hasNextPage then
             self:RequestTurnNextPage();
         else
             self.activeData.maxPage = page;
             self.activeData.fullyCached = true;
             self.fullyCached = true;
-            if page >  1 then
-                self.needTurnBack = true;
-            else
-                self.needTurnBack = false;
-            end
+            self.needTurnBack = page > 1;
 
             self:BeginCalculateTextHeight();
         end
     end
 
+    -- Returns an iterator over the cached raw page texts.
     function Cache:EnumeratePageTexts()
         if self.activeData then
             return ipairs(self.activeData.pageTexts);
-        else
-            return ipairs({})
         end
+
+        return ipairs({});
     end
 
+    -- Returns an iterator over the formatted content records.
     function Cache:EnumerateFormattedContent()
         if self.activeData then
-            return ipairs(self.activeData.formattedContent)
-        else
-            return ipairs({});
+            return ipairs(self.activeData.formattedContent);
         end
+
+        return ipairs({});
     end
 
+    -- Calculates content positions and records the start offset of each page.
     function Cache:CalculateFullContentHeight(fromOffsetY, removePagePadding)
         local offsetY = fromOffsetY;
         local page = 0;
 
-        for i, v in Cache:EnumerateFormattedContent() do
-            if v.text then
-                offsetY = offsetY + v.spacingAbove;
-                if v.isPageStart then
+        if not self.activeData then
+            return offsetY
+        end
+
+        -- 3.3.5 compatibility: Discard stale offsets when recalculating the layout.
+        self.activeData.pageStartOffset = {};
+
+        for _, data in self:EnumerateFormattedContent() do
+            if data.text then
+                offsetY = offsetY + (data.spacingAbove or 0);
+
+                if data.isPageStart then
                     page = page + 1;
-                    Cache:SetPageStartOffset(page, offsetY);
+                    self:SetPageStartOffset(page, offsetY);
                 end
-                v.offsetY = offsetY;
-                offsetY = Round(offsetY + v.textHeight + v.spacingBelow);
-                v.endingOffsetY = offsetY;
-            elseif v.image then
-                offsetY = offsetY + v.spacingAbove;
-                if v.isPageStart then
+
+                data.offsetY = offsetY;
+                offsetY = Round(offsetY + (data.textHeight or 0) + (data.spacingBelow or 0));
+                data.endingOffsetY = offsetY;
+            elseif data.image then
+                offsetY = offsetY + (data.spacingAbove or 0);
+
+                if data.isPageStart then
                     page = page + 1;
-                    Cache:SetPageStartOffset(page, offsetY);
+                    self:SetPageStartOffset(page, offsetY);
                 end
-                v.offsetY = offsetY;
-                offsetY = Round(offsetY + v.height);
-                v.endingOffsetY = offsetY;
+
+                data.offsetY = offsetY;
+                offsetY = Round(offsetY + (data.height or 0));
+                data.endingOffsetY = offsetY;
             end
         end
 
         return offsetY
     end
 
+    -- Returns the number of formatted content records in the active book.
     function Cache:GetMaxContentIndex()
         if self.activeData then
             return self.activeData.maxContentIndex
-        else
-            return 0
         end
+
+        return 0
     end
 
+    -- Measures a batch of formatted text records on successive update frames.
     function Cache:OnUpdate_CalculateTextHeight(elapsed)
         self.t = self.t + elapsed;
-        if self.t > 0.0 then
+        if self.t > 0 then
             self.t = 0;
             self:SetScript("OnUpdate", nil);
-            for i = 1, 10 do
+
+            if not self.activeData then
+                return
+            end
+
+            for _ = 1, 10 do
                 self.fromContentIndex = self.fromContentIndex + 1;
 
                 if self.fromContentIndex <= self.toContentIndex then
                     local data = self.activeData.formattedContent[self.fromContentIndex];
-                    if data.text then
-                        local height = Formatter:GetTextHeight(data.fontTag, data.text);
-                        data.textHeight = height;
+                    if data and data.text then
+                        data.textHeight = Formatter:GetTextHeight(data.fontTag, data.text);
                     end
                 else
-                    MainFrame:ShowUI();
+                    if MainFrame then
+                        MainFrame:ShowUI();
+                    end
                     return
                 end
             end
+
             self:SetScript("OnUpdate", self.OnUpdate_CalculateTextHeight);
         end
     end
 
+    -- Formats all cached pages and starts measuring the formatted text.
     function Cache:BeginCalculateTextHeight()
-        local title = self.activeData.title;   --"The Dark Portal and the Fall of Stormwind"
+        if not self.activeData or not MainFrame or not MainFrame.Header then
+            return
+        end
+
+        local title = self.activeData.title;
         MainFrame.Header:SetTitle(title);
         Formatter.titleText = title;
 
-        local addPagePadding = IsMultiPageBook();
-        local maxPage = Cache:GetMaxPage();
+        -- 3.3.5 compatibility: Rebuild formatting from scratch to avoid duplicated content.
+        self.activeData.formattedContent = {};
+        self.activeData.maxContentIndex = 0;
+        self.spacingPending = nil;
+        self.nextContentIsPageStart = nil;
 
-        for page, rawText in Cache:EnumeratePageTexts() do
-            Cache:FlagNextContentIsPageStart();
+        local addPagePadding = IsMultiPageBook();
+        local maxPage = self:GetMaxPage();
+
+        for page, rawText in self:EnumeratePageTexts() do
+            self:FlagNextContentIsPageStart();
             Formatter:FormatText(rawText);
-            if addPagePadding and (page ~= maxPage) then
-                Cache:AddSpacerToLastContent(Formatter.PAGE_SPACING);
+
+            if addPagePadding and page ~= maxPage then
+                self:AddSpacerToLastContent(Formatter.PAGE_SPACING);
             end
         end
 
         self:CalculateTextHeight();
     end
 
+    -- Resets the text-measurement state and begins the asynchronous measurement pass.
     function Cache:CalculateTextHeight()
-        --OnSettingsChanged
+        if not self.activeData then
+            return
+        end
+
         MainFrame:ReleaseAllObjects();
         self.t = 0;
         self.fromContentIndex = 0;
@@ -399,13 +492,18 @@ do  --Cache
         self:SetScript("OnUpdate", self.OnUpdate_CalculateTextHeight);
     end
 
+    -- Stores a formatted text record in the active book cache.
     function Cache:StoreText(fontTag, text, justifyH, spacingBelow)
+        if not self.activeData then
+            return
+        end
+
         local index = self.activeData.maxContentIndex + 1;
         self.activeData.maxContentIndex = index;
 
         justifyH = justifyH or "LEFT";
         if justifyH == "right" then
-            --Treat right-alignment as middle unless we encounter some edge cases (issue#98)
+            -- Treat right alignment as centered for the supported book layouts.
             justifyH = "CENTER";
         end
 
@@ -431,14 +529,22 @@ do  --Cache
         };
     end
 
+    -- Removes the trailing spacing from the last formatted text record.
     function Cache:RemoveLastTextSpacingBelow()
         local index = self.activeData and self.activeData.maxContentIndex;
-        if index and self.activeData.formattedContent[index] then
-            self.activeData.formattedContent[index].spacingBelow = 0;
+        local data = index and self.activeData.formattedContent[index];
+
+        if data then
+            data.spacingBelow = 0;
         end
     end
 
+    -- Stores a formatted image record in the active book cache.
     function Cache:StoreImage(file, align, width, height, left, right, top, bottom)
+        if not self.activeData then
+            return
+        end
+
         local index = self.activeData.maxContentIndex + 1;
         self.activeData.maxContentIndex = index;
 
@@ -471,14 +577,21 @@ do  --Cache
         };
     end
 
+    -- Adds spacing below the last cached content record.
     function Cache:AddSpacerToLastContent(height)
+        if not self.activeData then
+            return
+        end
+
         local index = self.activeData.maxContentIndex;
         local data = self:GetContentDataByIndex(index);
+
         if data then
-            data.spacingBelow = data.spacingBelow + height;
+            data.spacingBelow = (data.spacingBelow or 0) + height;
         end
     end
 
+    -- Adds spacing above the next cached content record.
     function Cache:AddSpacerToNextContent(height)
         if self.spacingPending then
             self.spacingPending = self.spacingPending + height;
@@ -487,63 +600,73 @@ do  --Cache
         end
     end
 
+    -- Marks the next stored content record as the start of a page.
     function Cache:FlagNextContentIsPageStart()
         self.nextContentIsPageStart = true;
     end
 
+    -- Stores the vertical offset at which a page begins.
     function Cache:SetPageStartOffset(page, offsetY)
         if self.activeData then
             self.activeData.pageStartOffset[page] = offsetY;
         end
     end
 
+    -- Returns the vertical offset for a page, or zero when it has none.
     function Cache:GetPageStartOffset(page)
         if self.activeData then
             return self.activeData.pageStartOffset[page] or 0
         end
     end
 
+    -- Returns a formatted content record by its index.
     function Cache:GetContentDataByIndex(contentIndex)
-        if self.activeData and self.activeData.formattedContent[contentIndex] then
+        if self.activeData then
             return self.activeData.formattedContent[contentIndex]
         end
     end
 
+    -- Returns the active book's formatted content list.
     function Cache:GetFormattedContent()
         if self.activeData then
             return self.activeData.formattedContent
-        else
-            return {}
         end
+
+        return {};
     end
 
+    -- Returns the active book's raw pages, optionally concatenated for copying.
     function Cache:GetRawContent(concatnate)
-        --For clipboard
-        if self.activeData then
-            if concatnate then
-                local text = self.activeData.title or "";
-                local itemID = self:GetCurrentItemID();
-                if itemID then
-                    text = text.."\n[itemID:"..itemID.."]";
-                else
-                    local location = self:GetBookLocation();
-                    if location then
-                        text = text.."\n"..location;
-                    end
-                end
-                local addPager = #self.activeData.pageTexts > 1;
-                for page, rawText in ipairs(self.activeData.pageTexts) do
-                    if addPager then
-                        text = text.."\n\n"..page.."\n"..rawText;
-                    else    --one page
-                        text = text.."\n\n"..rawText;
-                    end
-                end
-                return text
-            else
-                return self.activeData.pageTexts
+        if not self.activeData then
+            return
+        end
+
+        if not concatnate then
+            return self.activeData.pageTexts
+        end
+
+        local text = self.activeData.title or "";
+        local itemID = self:GetCurrentItemID();
+
+        if itemID then
+            text = text .. "\n[itemID:" .. itemID .. "]";
+        else
+            local location = self:GetBookLocation();
+            if location then
+                text = text .. "\n" .. location;
             end
         end
+
+        local addPager = #self.activeData.pageTexts > 1;
+        for page, rawText in ipairs(self.activeData.pageTexts) do
+            if addPager then
+                text = text .. "\n\n" .. page .. "\n" .. rawText;
+            else
+                text = text .. "\n\n" .. rawText;
+            end
+        end
+
+        return text
     end
 end
 
@@ -573,53 +696,73 @@ function DUIBookFrame_OnLoad(frame)
 end
 
 
-
 do  --Background Calculation \ Theme
     local TextureKit = {
-        [1] = {file = "Parchment.png", textColor = {0.19, 0.17, 0.13}, pageSelectedColor = "Ivory", pageNormalColor = "LightBrown", shadow = false, widgetTheme = 3},
-        [2] = {file = "Metal.png", textColor = {0.8, 0.8, 0.8}, pageSelectedColor = "DarkModeGrey90", pageNormalColor = "DarkModeGrey70", shadow = true, widgetTheme = 4},
+        [1] = {
+            file = "Parchment.png",
+            textColor = {0.19, 0.17, 0.13},
+            pageSelectedColor = "Ivory",
+            pageNormalColor = "LightBrown",
+            shadow = false,
+            widgetTheme = 3,
+        },
+        [2] = {
+            file = "Metal.png",
+            textColor = {0.8, 0.8, 0.8},
+            pageSelectedColor = "DarkModeGrey90",
+            pageNormalColor = "DarkModeGrey70",
+            shadow = true,
+            widgetTheme = 4,
+        },
     };
 
+    -- Applies the selected background texture, font colors, shadows, and widget theme.
     function DUIBookUIMixin:SetTextureKit(textureKitID)
-        if textureKitID and TextureKit[textureKitID] and textureKitID ~= self.textureKitID then
-            local info = TextureKit[textureKitID];
-            local file = string.format("Interface/AddOns/DialogueUI/Art/Book/TextureKit-"..info.file);
+        local info = textureKitID and TextureKit[textureKitID];
+        if not info or textureKitID == self.textureKitID then
+            return
+        end
 
-            self.textureKitID = textureKitID;
-            self.textureFile = file;
-            self.widgetTheme = info.widgetTheme;
+        local file = "Interface/AddOns/DialogueUI/Art/Book/TextureKit-" .. info.file;
 
-            if self.BackgroundPieces then
-                for _, obj in pairs(self.BackgroundPieces) do
-                    obj:SetTexture(file);
-                end
+        self.textureKitID = textureKitID;
+        self.textureFile = file;
+        self.widgetTheme = info.widgetTheme;
+
+        if self.BackgroundPieces then
+            for _, obj in pairs(self.BackgroundPieces) do
+                obj:SetTexture(file);
             end
+        end
 
-            if self.CloseButton then
-                self.CloseButton:SetUITexture(file);
-            end
+        if self.CloseButton then
+            self.CloseButton:SetUITexture(file);
+        end
 
-            self.Header:SetUITexture(file);
-            self.Header.HeaderScrollOverlap:SetTexture(file);
-            self.Header.HeaderScrollOverlap:SetTexCoord(128/1024, 896/1024, 1408/2048, 1488/2048);
+        self.Header:SetUITexture(file);
+        self.Header.HeaderScrollOverlap:SetTexture(file);
+        self.Header.HeaderScrollOverlap:SetTexCoord(128/1024, 896/1024, 1408/2048, 1488/2048);
 
-            self.Footer.FooterDivider:SetTexture(file);
-            self.Footer.FooterDivider:SetTexCoord(0, 768/1024, 1488/2048, 1520/2048);
+        self.Footer.FooterDivider:SetTexture(file);
+        self.Footer.FooterDivider:SetTexCoord(0, 768/1024, 1488/2048, 1520/2048);
 
-            self.Header.HeaderDivider:SetTexture(file);
-            self.Header.HeaderDivider:SetTexCoord(0, 768/1024, 1520/2048, 1552/2048);
+        self.Header.HeaderDivider:SetTexture(file);
+        self.Header.HeaderDivider:SetTexCoord(0, 768/1024, 1520/2048, 1552/2048);
 
-            local r, g, b = unpack(info.textColor);
-            local useShadow = info.shadow;
-            local fontObject;
+        local r, g, b = unpack(info.textColor);
+        local useShadow = info.shadow;
 
-            for tag, fontObjectName in pairs(TagFonts) do
-                fontObject = _G[fontObjectName];
+        for tag, fontObjectName in pairs(TagFonts) do
+            local fontObject = _G[fontObjectName];
+
+            -- 3.3.5 compatibility: Ignore font objects that are not defined by the loaded UI files.
+            if fontObject then
                 if tag == "smallprint" then
                     addon.ThemeUtil:SetFontColor(fontObject, info.pageNormalColor);
                 else
                     fontObject:SetTextColor(r, g, b);
                 end
+
                 if useShadow then
                     fontObject:SetShadowOffset(0, 2);
                     fontObject:SetShadowColor(0, 0, 0);
@@ -627,103 +770,107 @@ do  --Background Calculation \ Theme
                     fontObject:SetShadowOffset(0, 0);
                 end
             end
+        end
 
-            self.Header:SetPageTextColor(info.pageSelectedColor, info.pageNormalColor);
+        self.Header:SetPageTextColor(info.pageSelectedColor, info.pageNormalColor);
 
-            if self.TTSButton then
-                self.TTSButton:SetTheme(info.widgetTheme);
-            end
+        if self.TTSButton then
+            self.TTSButton:SetTheme(info.widgetTheme);
+        end
 
-            if self.CopyTextButton then
-                self.CopyTextButton:SetTheme(info.widgetTheme);
-            end
+        if self.CopyTextButton then
+            self.CopyTextButton:SetTheme(info.widgetTheme);
+        end
 
-            if self.SourceItemButton then
-                self.SourceItemButton:SetTexture(file);
-            end
+        if self.SourceItemButton then
+            self.SourceItemButton:SetTexture(file);
         end
     end
 
+    -- Sets the book frame height and positions its one- or two-piece background.
     function DUIBookUIMixin:SetFrameHeight(height, scrollable)
-        local p = self.BackgroundPieces;
+        local pieces = self.BackgroundPieces;
 
-        if not p then
-            p = {};
-            self.BackgroundPieces = p;
-            p[1] = self:CreateTexture(nil, "BACKGROUND", nil, -1);
-            p[2] = self.Footer:CreateTexture(nil, "OVERLAY", nil, -1);      --We use the bottom texture's upper border to "mask" the text body
+        if not pieces then
+            pieces = {};
+            self.BackgroundPieces = pieces;
+            pieces[1] = self:CreateTexture(nil, "BACKGROUND", nil, -1);
+            pieces[2] = self.Footer:CreateTexture(nil, "OVERLAY", nil, -1);
         end
 
-        local cs = ConvertedSize;
+        local size = ConvertedSize;
 
-        if height < cs.FRAME_HEIGHT_MIN then
-            height = cs.FRAME_HEIGHT_MIN;
+        if height < size.FRAME_HEIGHT_MIN then
+            height = size.FRAME_HEIGHT_MIN;
         end
 
-        local isDynamicHeight = (not scrollable) and (height + 8) < cs.FRAME_HEIGHT_MAX;
+        local isDynamicHeight = (not scrollable) and (height + 8) < size.FRAME_HEIGHT_MAX;
         local useTwoPieceBG = scrollable or isDynamicHeight;
 
         if not isDynamicHeight then
-            height = cs.FRAME_HEIGHT_MAX;
+            height = size.FRAME_HEIGHT_MAX;
         end
 
         if useTwoPieceBG or (useTwoPieceBG ~= self.useTwoPieceBG) then
-            p[1]:ClearAllPoints();  --Top Piece
-            p[2]:ClearAllPoints();  --Bottom Piece
+            pieces[1]:ClearAllPoints();
+            pieces[2]:ClearAllPoints();
 
             if useTwoPieceBG then
-                local centralRatio = (height - cs.FRAME_TOP_HEIGHT - cs.FRAME_BOTTOM_HEIGHT) / cs.FRAME_SHRINK_RANGE;
-                if centralRatio > 1 then    --Shouldn't happen
+                local centralRatio = (height - size.FRAME_TOP_HEIGHT - size.FRAME_BOTTOM_HEIGHT) / size.FRAME_SHRINK_RANGE;
+                if centralRatio > 1 then
                     centralRatio = 1;
+                elseif centralRatio < 0 then
+                    centralRatio = 0;
                 end
 
-                p[1]:SetTexCoord(0, 1, 0, (192 + 744 * centralRatio)/2048);
-                p[1]:SetSize(cs.PIECE_WIDTH, cs.PIECE_TOP_HEIGHT);
-                p[1]:SetPoint("TOP", self, "TOP", 0, cs.PIECE_TOP_OFFSET);
-                p[1]:SetPoint("BOTTOM", p[2], "TOP", 0, cs.PIECE_BOTTOM_OVERLAP);
+                pieces[1]:SetTexCoord(0, 1, 0, (192 + 744 * centralRatio)/2048);
+                pieces[1]:SetSize(size.PIECE_WIDTH, size.PIECE_TOP_HEIGHT);
+                pieces[1]:SetPoint("TOP", self, "TOP", 0, size.PIECE_TOP_OFFSET);
+                pieces[1]:SetPoint("BOTTOM", pieces[2], "TOP", 0, size.PIECE_BOTTOM_OVERLAP);
 
-                p[2]:SetTexCoord(0, 1, 1152/2048, 1408/2048);
-                p[2]:SetSize(cs.PIECE_WIDTH, cs.PIECE_BOTTOM_HEIGHT);
-                p[2]:SetPoint("BOTTOM", self, "BOTTOM", 0, cs.PIECE_BOTTOM_OFFSET);
+                pieces[2]:SetTexCoord(0, 1, 1152/2048, 1408/2048);
+                pieces[2]:SetSize(size.PIECE_WIDTH, size.PIECE_BOTTOM_HEIGHT);
+                pieces[2]:SetPoint("BOTTOM", self, "BOTTOM", 0, size.PIECE_BOTTOM_OFFSET);
+                pieces[2]:Show();
+            else
+                height = size.FRAME_HEIGHT_MAX;
 
-                p[2]:Show();
-            else    --Use the top piece to display whole background
-                height = cs.FRAME_HEIGHT_MAX;
-
-                p[1]:SetTexCoord(0, 1, 0, 1152/2048);
-                p[1]:SetSize(cs.PIECE_WIDTH, cs.PIECE_HEIGHT_FULL);
-                p[1]:SetPoint("CENTER", self, "CENTER", 0, 0);
-                p[2]:Hide();
+                pieces[1]:SetTexCoord(0, 1, 0, 1152/2048);
+                pieces[1]:SetSize(size.PIECE_WIDTH, size.PIECE_HEIGHT_FULL);
+                pieces[1]:SetPoint("CENTER", self, "CENTER", 0, 0);
+                pieces[2]:Hide();
             end
 
             self.useTwoPieceBG = useTwoPieceBG;
-            self:SetSize(cs.FRAME_WIDTH, height);
+            self:SetSize(size.FRAME_WIDTH, height);
         end
 
         return height
     end
 
+    -- Positions the book frame and screen vignette within the current viewport.
     function DUIBookUIMixin:Reposition()
-        local viewportWidth, viewportHeight = API.GetBestViewportSize();
+        local viewportWidth = API.GetBestViewportSize();
         local distanceToEdge = 48;
         local defaultOffsetX, anchor;
         local vignetteOffset = viewportWidth * 128/896;
+
         self.ScreenVignette:ClearAllPoints();
 
         local isLeft = true;
 
         if isLeft then
-            defaultOffsetX = -0.5*viewportWidth + distanceToEdge;
+            defaultOffsetX = -0.5 * viewportWidth + distanceToEdge;
             anchor = "LEFT";
             self.ScreenVignette:SetTexCoord(0, 1, 0, 1);
-            self.ScreenVignette:SetPoint("TOPLEFT", nil, "TOP", -0.5*viewportWidth -vignetteOffset, 1);
-            self.ScreenVignette:SetPoint("BOTTOMRIGHT", nil, "BOTTOM", 0.5*viewportWidth, -1);
+            self.ScreenVignette:SetPoint("TOPLEFT", nil, "TOP", -0.5 * viewportWidth - vignetteOffset, 1);
+            self.ScreenVignette:SetPoint("BOTTOMRIGHT", nil, "BOTTOM", 0.5 * viewportWidth, -1);
         else
-            defaultOffsetX = 0.5*viewportWidth - distanceToEdge;
+            defaultOffsetX = 0.5 * viewportWidth - distanceToEdge;
             anchor = "RIGHT";
             self.ScreenVignette:SetTexCoord(1, 0, 0, 1);
-            self.ScreenVignette:SetPoint("TOPLEFT", nil, "TOP", -0.5*viewportWidth, 1);
-            self.ScreenVignette:SetPoint("BOTTOMRIGHT", nil, "BOTTOM", 0.5*viewportWidth + vignetteOffset, -1);
+            self.ScreenVignette:SetPoint("TOPLEFT", nil, "TOP", -0.5 * viewportWidth, 1);
+            self.ScreenVignette:SetPoint("BOTTOMRIGHT", nil, "BOTTOM", 0.5 * viewportWidth + vignetteOffset, -1);
         end
 
         self.defaultOffsetX = defaultOffsetX;
@@ -733,61 +880,74 @@ do  --Background Calculation \ Theme
         self:SetPoint(anchor, nil, "CENTER", defaultOffsetX, 0);
     end
 
+    -- Updates the optional source-item widget's spacing and dimensions.
     function DUIBookUIMixin:UpdateSourceItemButton()
         if self.SourceItemButton then
-            local cs = ConvertedSize;
+            local size = ConvertedSize;
             self.SourceItemButton:SetTextSpacing(Formatter.TEXT_SPACING);
-            local maxTextWidth = cs.CONTENT_WIDTH - cs.ITEM_BORDER_EFFECTIVE_SIZE;
-            self.SourceItemButton:SetWidgetSize(cs.ITEM_BORDER_SIZE, cs.ITEM_ICON_SIZE, cs.ITEM_BORDER_EFFECTIVE_SIZE, Formatter.FONT_SIZE, maxTextWidth);
+
+            local maxTextWidth = size.CONTENT_WIDTH - size.ITEM_BORDER_EFFECTIVE_SIZE;
+            self.SourceItemButton:SetWidgetSize(
+                size.ITEM_BORDER_SIZE,
+                size.ITEM_ICON_SIZE,
+                size.ITEM_BORDER_EFFECTIVE_SIZE,
+                Formatter.FONT_SIZE,
+                maxTextWidth
+            );
         end
     end
 
+    -- Reapplies scaled dimensions to the book frame and its child controls.
     function DUIBookUIMixin:Resize()
-        --Resize after base frame/font size change (Small/Medium/Large)
-        local cs = ConvertedSize;
+        local size = ConvertedSize;
 
-        self.ContentFrame:SetSize(cs.FRAME_WIDTH, 64);  --Height doesn't really matter
+        self.ContentFrame:SetSize(size.FRAME_WIDTH, 64);
 
         if self.CloseButton then
-            self.CloseButton:SetPoint("TOPRIGHT", self, "TOPRIGHT", -cs.CLOSE_BUTTON_OFFSET, -cs.CLOSE_BUTTON_OFFSET);
-            self.CloseButton:SetSize(cs.CLOSE_BUTTON_SIZE, cs.CLOSE_BUTTON_SIZE);
+            self.CloseButton:SetPoint(
+                "TOPRIGHT",
+                self,
+                "TOPRIGHT",
+                -size.CLOSE_BUTTON_OFFSET,
+                -size.CLOSE_BUTTON_OFFSET
+            );
+            self.CloseButton:SetSize(size.CLOSE_BUTTON_SIZE, size.CLOSE_BUTTON_SIZE);
         end
 
-        self.Header.Title:SetWidth(cs.CONTENT_WIDTH);
-        self.Header.Title:SetPoint("TOP", self, "TOP", 0, -cs.PADDING_V);
+        self.Header.Title:SetWidth(size.CONTENT_WIDTH);
+        self.Header.Title:SetPoint("TOP", self, "TOP", 0, -size.PADDING_V);
 
-        self.Header.HeaderScrollOverlap:SetSize(cs.FRAME_WIDTH, cs.HEADER_OVERLAP_HEIGHT);
-        self.Footer.FooterDivider:SetSize(cs.FRAME_WIDTH, cs.FOOTER_DIVIDER_HEIGHT);
-        self.Header.HeaderDivider:SetSize(cs.FRAME_WIDTH, cs.HEADER_DIVIDER_HEIGHT);
-        self.Header:SetPageButtonSize(cs.PAGE_BUTTON_SIZE, cs.PAGE_BUTTON_GAP);
+        self.Header.HeaderScrollOverlap:SetSize(size.FRAME_WIDTH, size.HEADER_OVERLAP_HEIGHT);
+        self.Footer.FooterDivider:SetSize(size.FRAME_WIDTH, size.FOOTER_DIVIDER_HEIGHT);
+        self.Header.HeaderDivider:SetSize(size.FRAME_WIDTH, size.HEADER_DIVIDER_HEIGHT);
+        self.Header:SetPageButtonSize(size.PAGE_BUTTON_SIZE, size.PAGE_BUTTON_GAP);
 
-        self.Header:SetWidth(cs.CONTENT_WIDTH);
+        self.Header:SetWidth(size.CONTENT_WIDTH);
         self:LayoutWidgets();
         self:UpdateSourceItemButton();
     end
 
+    -- Calculates pagination, frame height, and scroll-frame placement for formatted content.
     function DUIBookUIMixin:SetScrollContentHeight(contentHeight, maxPage)
-        --Determine if the current page can be fully displayed
-        --If the page needs to be scrollable nad book has multiple pages, it will scroll down util it reach the bottom, then turn to next page
-        --Scroll backwards will scroll to the page's top
-        --The Header (including Book Name and Pagination for multi-page) use constant size
+        local size = ConvertedSize;
 
-        local cs = ConvertedSize;
-
-        local usePagination = maxPage > 1;  --If the book has multiple pages but we can still show all content in a single page, we don't use pagination
+        local usePagination = maxPage > 1;
         local titleHeight = self.Header:GetTitleHeight();
         local titleLineHeight = self.Header:GetTitleEffectiveLineHeight();
         local titleSpacing = 0.35 * titleLineHeight;
         local heightBelowTitle;
-        local heightBelowTitleNoPagi = titleSpacing + 2;
+        local heightBelowTitleNoPagination = titleSpacing + 2;
 
         if usePagination then
-            heightBelowTitle = Formatter.PARAGRAPH_SPACING + cs.PAGE_BUTTON_SIZE;
+            heightBelowTitle = Formatter.PARAGRAPH_SPACING + size.PAGE_BUTTON_SIZE;
         else
-            heightBelowTitle = heightBelowTitleNoPagi;
+            heightBelowTitle = heightBelowTitleNoPagination;
         end
 
-        local maxContentHeight = cs.FRAME_HEIGHT_MAX - 2*cs.PADDING_V - titleHeight - heightBelowTitle;
+        local maxContentHeight = size.FRAME_HEIGHT_MAX
+            - 2 * size.PADDING_V
+            - titleHeight
+            - heightBelowTitle;
         local scrollable = contentHeight > maxContentHeight;
 
         if not scrollable then
@@ -796,62 +956,85 @@ do  --Background Calculation \ Theme
 
         if maxPage > 1 and not usePagination then
             local offsetY = self:GetContentFromOffsetY(false);
-            offsetY = Cache:CalculateFullContentHeight(offsetY);
+            Cache:CalculateFullContentHeight(offsetY);
         end
 
         if not usePagination then
-            heightBelowTitle = heightBelowTitleNoPagi;
+            heightBelowTitle = heightBelowTitleNoPagination;
             maxPage = 1;
         end
 
         self.Header:SetHeightBelowTitle(heightBelowTitle);
 
-        --Update Pagination
         local numPageButtons = self.Header:SetMaxPage(maxPage);
-
-        --Adjust Header: padding below title
         local headerOffsetY;
 
+        -- 3.3.5 compatibility: HeaderDividerExclusion is absent from the supplied BookUI.xml.
+        -- If the XML later defines it, this block toggles it to leave space behind the page buttons.
+        local dividerExclusion = self.Header.HeaderDividerExclusion;
+
         if usePagination then
-            self.Header.HeaderDividerExclusion:Show();
-            local buttonSpan = numPageButtons * (cs.PAGE_BUTTON_SIZE + cs.PAGE_BUTTON_GAP) + 3*cs.PAGE_BUTTON_GAP;
-            self.Header.HeaderDividerExclusion:SetWidth(buttonSpan);                --Cut HeaderDivider
-            self.Header.HeaderDividerExclusion:SetHeight(cs.PAGE_BUTTON_SIZE + 4);
-            headerOffsetY = cs.HEADER_DIVIDER_BELOW_TITLE;
+            if dividerExclusion then
+                dividerExclusion:Show();
+                local buttonSpan = numPageButtons * (size.PAGE_BUTTON_SIZE + size.PAGE_BUTTON_GAP)
+                    + 3 * size.PAGE_BUTTON_GAP;
+                dividerExclusion:SetWidth(buttonSpan);
+                dividerExclusion:SetHeight(size.PAGE_BUTTON_SIZE + 4);
+            end
+
+            headerOffsetY = size.HEADER_DIVIDER_BELOW_TITLE;
             self.Header.HeaderDivider:ClearAllPoints();
             self.Header.HeaderDivider:SetPoint("CENTER", self.Header.Title, "BOTTOM", 0, headerOffsetY);
         else
-            self.Header.HeaderDividerExclusion:Hide();
+            if dividerExclusion then
+                dividerExclusion:Hide();
+            end
+
             headerOffsetY = -Formatter.PARAGRAPH_SPACING;
             self.Header.HeaderDivider:ClearAllPoints();
-            self.Header.HeaderDivider:SetPoint("CENTER", self, "TOP", 0, -Round(cs.PADDING_V + titleHeight + titleSpacing));
+            self.Header.HeaderDivider:SetPoint(
+                "CENTER",
+                self,
+                "TOP",
+                0,
+                -Round(size.PADDING_V + titleHeight + titleSpacing)
+            );
         end
 
         local headerHeight = self.Header:GetHeaderHeight();
-        local totalFrameHeight = headerHeight + contentHeight + 2*cs.PADDING_V;
-        local frameHeight = self:SetFrameHeight(totalFrameHeight, scrollable);
-        local scrollRange;
-
-        --debug
-        --self.DebugArea:ClearAllPoints();
-        --self.DebugArea:SetSize(32, contentHeight);
-        --self.DebugArea:SetPoint("TOP", self.ContentFrame, "TOP", 0, 0);
+        local totalFrameHeight = headerHeight + contentHeight + 2 * size.PADDING_V;
+        self:SetFrameHeight(totalFrameHeight, scrollable);
 
         self.ScrollFrame:ClearAllPoints();
-        self.ScrollFrame:SetPoint("TOPLEFT", self, "TOPLEFT", 0,  -cs.PADDING_V - headerHeight);
-        self.ScrollFrame:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", 0, cs.PADDING_V);
+        self.ScrollFrame:SetPoint(
+            "TOPLEFT",
+            self,
+            "TOPLEFT",
+            0,
+            -size.PADDING_V - headerHeight
+        );
+        self.ScrollFrame:SetPoint(
+            "BOTTOMRIGHT",
+            self,
+            "BOTTOMRIGHT",
+            0,
+            size.PADDING_V
+        );
+
+        local scrollRange;
 
         if scrollable then
             self.ContentFrame:SetParent(self.ScrollFrame.ScrollChild);
             self.ContentFrame:SetPoint("TOPLEFT", self.ScrollFrame.ScrollChild, "TOPLEFT", 0, 0);
             self.ContentFrame:SetFrameLevel(self.ScrollFrame.ScrollChild:GetFrameLevel());
+
             local scrollFrameHeight = self.ScrollFrame:GetHeight();
             scrollRange = Round(contentHeight + Formatter.PAGE_SPACING - scrollFrameHeight);
             self:SetScript("OnMouseWheel", self.OnMouseWheel);
         else
             scrollRange = 0;
             self.ContentFrame:SetParent(self);
-            self.ContentFrame:SetPoint("TOP", self, "TOP", 0, -cs.PADDING_V - headerHeight);
+            self.ContentFrame:SetPoint("TOP", self, "TOP", 0, -size.PADDING_V - headerHeight);
             self.ContentFrame:SetFrameLevel(self.Footer:GetFrameLevel() + 10);
             self:SetScript("OnMouseWheel", nil);
         end
@@ -865,14 +1048,47 @@ do  --Background Calculation \ Theme
     end
 end
 
-do  --Scroll Anim
-    --Tested on 120Hz, displaying all fontstrings at the same time don't have performance issue
-    --So should I still recycle objects that are out of viewport?
 
+
+do  --Scroll Anim
+    -- A very small easing helper for the intro animation.
+    local EasingFunc = addon.EasingFunctions.outQuart;
+    local ANIM_DURATION_SCROLL_EXPAND = 0.5;
+
+    -- Animates the book frame into view when it is shown.
+    local function AnimIntro_FlyIn_OnUpdate(self, elapsed)
+        self.t = self.t + elapsed;
+        local offsetY = EasingFunc(self.t, -48, 0, ANIM_DURATION_SCROLL_EXPAND);
+        local alpha = 4 * self.t;
+
+        if alpha > 1 then
+            alpha = 1;
+        end
+
+        if self.t >= ANIM_DURATION_SCROLL_EXPAND then
+            offsetY = 0;
+            self.t = 0;
+            self:SetScript("OnUpdate", nil);
+
+            -- 3.3.5 compatibility: Do not force any object visibility on older clients.
+            local function ShowOutOfBoundObjects(obj)
+                -- obj:Show();
+            end
+
+            self.fontStringPool:ProcessActiveObjects(ShowOutOfBoundObjects);
+            self.texturePool:ProcessActiveObjects(ShowOutOfBoundObjects);
+        end
+
+        self:SetPoint(self.defaultAnchor, nil, "CENTER", self.defaultOffsetX, offsetY);
+        self:SetAlpha(alpha);
+    end
+
+    -- Resets the scroll position to the top of the content.
     function DUIBookUIMixin:ResetScroll()
         self.ScrollFrame:ResetScroll();
     end
 
+    -- Returns true when the book is at the top of the scrollable content.
     function DUIBookUIMixin:IsAtPageTop()
         if self.scrollable then
             return self.ScrollFrame:IsAtPageTop();
@@ -881,6 +1097,7 @@ do  --Scroll Anim
         end
     end
 
+    -- Returns true when the book is at the bottom of the scrollable content.
     function DUIBookUIMixin:IsAtPageBottom()
         if self.scrollable then
             return self.ScrollFrame:IsAtPageBottom();
@@ -889,6 +1106,7 @@ do  --Scroll Anim
         end
     end
 
+    -- Handles mouse wheel scrolling for the book content.
     function DUIBookUIMixin:OnMouseWheel(delta)
         if not Cache:IsCurrentObjectFullyCached() then
             return
@@ -909,16 +1127,18 @@ do  --Scroll Anim
         end
     end
 
+    -- Scrolls by a relative value.
     function DUIBookUIMixin:ScrollBy(deltaValue)
         self.ScrollFrame:ScrollBy(deltaValue);
     end
 
+    -- Scrolls to an absolute vertical position.
     function DUIBookUIMixin:ScrollTo(value)
         self.ScrollFrame:ScrollTo(value);
     end
 
+    -- Scrolls the content so the given content index is moved toward the top.
     function DUIBookUIMixin:ScrollToContent(contentIndex)
-        --Move content to the top if possible
         local data = Cache:GetContentDataByIndex(contentIndex);
         if data then
             local offsetY = data.offsetY;
@@ -927,6 +1147,7 @@ do  --Scroll Anim
         end
     end
 
+    -- Scrolls to the start of a given page.
     function DUIBookUIMixin:ScrollToPage(page)
         local maxPage = Cache:GetMaxPage();
         if page > maxPage then
@@ -945,12 +1166,10 @@ do  --Scroll Anim
         end
     end
 
+    -- Determines the current page based on the scroll position.
     function DUIBookUIMixin:GetCurrentPage()
-        --We consider the new page as the current one when it reach the x% of the frame
-        local offset = self.ScrollFrame:GetScrollTarget() + self.scrollFromOffetY + 0.4*self.ScrollFrame:GetViewSize();
+        local offset = self.ScrollFrame:GetScrollTarget() + self.scrollFromOffetY + 0.4 * self.ScrollFrame:GetViewSize();
         local maxPage = Cache:GetMaxPage();
-
-        local pageOffset;
 
         if self.ScrollFrame:IsAtPageTop() then
             return 1
@@ -961,7 +1180,7 @@ do  --Scroll Anim
         end
 
         for page = maxPage, 1, -1 do
-            pageOffset = Cache:GetPageStartOffset(page);
+            local pageOffset = Cache:GetPageStartOffset(page);
             if offset > pageOffset then
                 return page
             end
@@ -970,14 +1189,13 @@ do  --Scroll Anim
         return 1
     end
 
+    -- Scrolls just beyond the next page break.
     function DUIBookUIMixin:ScrollToNearNextPage()
         local offset = self.ScrollFrame:GetScrollTarget() + self.scrollFromOffetY + 0.1;
         local maxPage = Cache:GetMaxPage();
 
-        local pageOffset;
-
         for page = 1, maxPage do
-            pageOffset = Cache:GetPageStartOffset(page);
+            local pageOffset = Cache:GetPageStartOffset(page);
             if offset < pageOffset then
                 if page == 1 and page < maxPage then
                     page = 2;
@@ -990,14 +1208,13 @@ do  --Scroll Anim
         end
     end
 
+    -- Scrolls just before the previous page break.
     function DUIBookUIMixin:ScrollToNearPrevPage()
         local offset = self.ScrollFrame:GetScrollTarget() + self.scrollFromOffetY - 0.1;
         local maxPage = Cache:GetMaxPage();
 
-        local pageOffset;
-
         for page = maxPage, 1, -1 do
-            pageOffset = Cache:GetPageStartOffset(page);
+            local pageOffset = Cache:GetPageStartOffset(page);
             if offset > pageOffset then
                 local offsetY;
                 if page == 1 then
@@ -1012,10 +1229,12 @@ do  --Scroll Anim
     end
 end
 
+
+
 do  --Formatter
     local IgnoredTags = {
         ["<br/>"] = true,
-        ["</p>"] = true;
+        ["</p>"] = true,
         ["<HTML><BODY>"] = true,
         ["</BODY></HTML>"] = true,
     };
@@ -1026,38 +1245,62 @@ do  --Formatter
         ["right"] = "RIGHT",
     };
 
+    -- Sets the base font size and derived spacing values used throughout the formatter.
     function Formatter:SetBaseFontSize(baseFontSize)
         self.FONT_SIZE = baseFontSize;
-        self.TEXT_SPACING = 0.35 * baseFontSize;        --Recommended Line Height: 1.2 - 1.5
+        self.TEXT_SPACING = 0.35 * baseFontSize;
         self.PARAGRAPH_SPACING = 4 * self.TEXT_SPACING;
         self.PAGE_SPACING = 4 * self.PARAGRAPH_SPACING;
         self.OFFSET_PER_SCROLL = Round(4 * (self.FONT_SIZE + self.TEXT_SPACING));
 
-        self.UtilityFontString:SetSpacing(self.TEXT_SPACING);
+        -- 3.3.5 compatibility: Utility font string may not be initialized yet.
+        if self.UtilityFontString then
+            self.UtilityFontString:SetSpacing(self.TEXT_SPACING);
+        end
     end
 
+    -- Acquires a reusable texture object from the pool.
     function Formatter:AcquireTexture()
-        local tex = MainFrame.texturePool:Acquire();
-        return tex
+        if MainFrame and MainFrame.texturePool then
+            local tex = MainFrame.texturePool:Acquire();
+            return tex
+        end
+
+        return nil
     end
 
+    -- Applies the appropriate font object to a FontString by tag name.
     function Formatter:SetFontObjectByTag(fontString, fontTag)
+        if not fontString then
+            return
+        end
+
         if not (fontTag and TagFonts[fontTag]) then
             fontTag = "p";
         end
+
         fontString:SetFontObject(TagFonts[fontTag]);
     end
 
+    -- Acquires a reusable FontString object by tag and applies the matching font.
     function Formatter:AcquireFontStringByTag(fontTag)
-        local fs = MainFrame.fontStringPool:Acquire();
-        self:SetFontObjectByTag(fs, fontTag);
-        return fs
+        if MainFrame and MainFrame.fontStringPool then
+            local fs = MainFrame.fontStringPool:Acquire();
+            self:SetFontObjectByTag(fs, fontTag);
+            return fs
+        end
+
+        return nil
     end
 
+    -- Inserts a plain text block at the given offset and returns the updated offset.
     function Formatter:InsertText(offsetY, text, tag, justifyH)
-        --Unused
-        --Add no spacing
+        -- Unused in the current layout flow, but kept as a legacy helper.
         local fs = self:AcquireFontStringByTag(tag);
+        if not fs then
+            return offsetY, 0
+        end
+
         local textRef = MainFrame.ContentFrame;
         fs:SetPoint("TOP", textRef, "TOP", 0, -offsetY);
         fs:SetJustifyH(justifyH or "LEFT");
@@ -1067,34 +1310,45 @@ do  --Formatter
         return offsetY, height
     end
 
+    -- Inserts a header block and adds padding below it.
     function Formatter:InsertHeader(offsetY, text, tag, justifyH)
-        --Unused
-        --Add paragrah spacing to the bottom
+        -- Unused in the current layout flow, but kept as a legacy helper.
         local textHeight;
         offsetY, textHeight = self:InsertText(offsetY, text, tag, justifyH);
-        offsetY = offsetY  + ConvertedSize.PADDING_H
+        offsetY = offsetY + ConvertedSize.PADDING_H;
         return offsetY, textHeight
     end
 
+    -- Inserts a paragraph block and adds paragraph spacing above it.
     function Formatter:InsertParagraph(offsetY, text, tag, justifyH)
-        --Unused
-        --Add paragrah spacing to the top
+        -- Unused in the current layout flow, but kept as a legacy helper.
         local textHeight;
         offsetY, textHeight = self:InsertText(offsetY + self.PARAGRAPH_SPACING, text, tag, justifyH);
         return offsetY, textHeight
     end
 
+    -- Sets the width used by the utility font string for measuring text height.
     function Formatter:SetUtilityTextWidth(width)
-        self.UtilityFontString:SetWidth(width);
+        if self.UtilityFontString then
+            self.UtilityFontString:SetWidth(width);
+        end
     end
 
+    -- Returns the measured height of text rendered with a specific font tag.
     function Formatter:GetTextHeight(fontTag, text)
-        self.UtilityFontString:SetSpacing(Formatter.TEXT_SPACING);
-        self.UtilityFontString:SetSize(ConvertedSize.CONTENT_WIDTH, 0);
+        if not self.UtilityFontString then
+            return 0
+        end
+
+        self.UtilityFontString:SetSpacing(self.TEXT_SPACING or 0);
+        self.UtilityFontString:SetSize(ConvertedSize.CONTENT_WIDTH or 0, 0);
+
         if fontTag ~= self.utilityFontTag then
             self.utilityFontTag = fontTag;
-            self.UtilityFontString:SetFontObject(TagFonts[fontTag]);
+            local fontObject = TagFonts[fontTag] or TagFonts["p"];
+            self.UtilityFontString:SetFontObject(fontObject);
         end
+
         self.UtilityFontString:SetText(text);
         local height = self.UtilityFontString:GetHeight();
         self.UtilityFontString:SetText(nil);
@@ -1102,6 +1356,7 @@ do  --Formatter
         return height
     end
 
+    -- Decides whether input text should be parsed as plain paragraphs or HTML.
     function Formatter:FormatText(text)
         if find(text, "<HTML>") then
             return self:FormatHTML(text)
@@ -1110,6 +1365,7 @@ do  --Formatter
         end
     end
 
+    -- Converts plain text into cached book content without HTML parsing.
     function Formatter:FormatParagraph(text)
         local paragraphs = API.SplitParagraph(text);
         local fontTag = "p";
@@ -1119,25 +1375,21 @@ do  --Formatter
         local anyAdded = false;
 
         if numParagraphs > 0 then
-            for i, paragraphText in ipairs(paragraphs) do
+            for _, paragraphText in ipairs(paragraphs) do
                 if paragraphText ~= "" then
                     anyAdded = true;
                     Cache:StoreText(fontTag, paragraphText, align, paragraphSpacing);
                 end
             end
-        else
-
         end
 
         if anyAdded then
             Cache:RemoveLastTextSpacingBelow();
         end
-
-        --PP = paragraphs;    --debug
     end
 
+    -- Removes a small set of legacy HTML wrapper tags from the formatted text.
     local function CleanUpTags(text)
-        --Remove <>
         text = gsub(text, "^<[^<>]+>", "", 1);
         text = gsub(text, "^<[^<>]+>", "", 1);
         text = gsub(text, "<[^<>]+>$", "", 1);
@@ -1147,6 +1399,7 @@ do  --Formatter
         return text
     end
 
+    -- Parses HTML-like book content and converts images/tags into cache entries.
     function Formatter:FormatHTML(text)
         local paragraphs = API.SplitParagraph(text);
         local match = match;
@@ -1154,31 +1407,33 @@ do  --Formatter
 
         local numTexts = 0;
         local numImages = 0;
-        local paragraphSpacing = self.PARAGRAPH_SPACING
+        local paragraphSpacing = self.PARAGRAPH_SPACING or 0;
         local numParagraphs = paragraphs and #paragraphs or 0;
         local anyAdded = false;
 
         if numParagraphs > 0 then
-            for i, paragraphText in ipairs(paragraphs) do
+            for _, paragraphText in ipairs(paragraphs) do
                 if not IgnoredTags[paragraphText] then
                     local tag, align;
                     tag = match(paragraphText, "^</*([%w]+)/*>");
                     if not tag then
                         tag = match(paragraphText, "^<([%w]+)%s");
                     end
-                    --print(i, tag)
+
                     if tag and not IgnoredTags[tag] then
                         tag = lower(tag);
 
                         if tag == "img" then
-                            local file = match(paragraphText, "src=\"([%S]+)\"");   --src=\"([%S]+)\"%s
+                            local file = match(paragraphText, "src=\"([%S]+)\"");
                             if file then
                                 numImages = numImages + 1;
-                                local width = match(paragraphText,"width=\"(%d+)");
+
+                                local width = match(paragraphText, "width=\"(%d+)");
                                 width = width and tonumber(width);
-                                local height = match(paragraphText,"height=\"(%d+)");
+                                local height = match(paragraphText, "height=\"(%d+)");
                                 height = height and tonumber(height);
-                                align = match(paragraphText,"align=\"(%a+)") or "center";
+
+                                align = match(paragraphText, "align=\"(%a+)") or "center";
                                 local imageWidth, imageHeight;
                                 local left, right, top, bottom = 0, 1, 0, 1;
                                 file = lower(file);
@@ -1188,7 +1443,7 @@ do  --Formatter
                                 end
 
                                 if not (width and height) then
-                                    local ratio, _l, _r, _t, _b = BookComponent:GetTextureCoordForFile(file);   --Check AtlasInfo
+                                    local ratio, _l, _r, _t, _b = BookComponent:GetTextureCoordForFile(file);
                                     if ratio then
                                         imageWidth = ConvertedSize.CONTENT_WIDTH;
                                         imageHeight = ratio * imageWidth;
@@ -1211,7 +1466,7 @@ do  --Formatter
                                 if not (width and height) then
                                     width = ConvertedSize.CONTENT_WIDTH;
                                     height = width;
-                                    imageWidth = Round(width * 0.618)
+                                    imageWidth = Round(width * 0.618);
                                     imageHeight = imageWidth;
                                 end
 
@@ -1265,17 +1520,14 @@ do  --Formatter
                     end
                 end
             end
-        else
-
         end
 
         if anyAdded then
             Cache:RemoveLastTextSpacingBelow();
         end
-
-        --PP = paragraphs;    --debug
     end
 
+    -- Returns the vertical offset used to position content within the scrollable area.
     function DUIBookUIMixin:GetContentFromOffsetY(scrollable)
         local fromOffsetY;
         if scrollable then
@@ -1283,12 +1535,14 @@ do  --Formatter
         else
             fromOffsetY = Round(Formatter.PARAGRAPH_SPACING);
         end
+
+        -- 3.3.5 compatibility: Scroll offsets are not always initialized until the frame is built.
         MainFrame.scrollFromOffetY = fromOffsetY;
         return fromOffsetY
     end
 
+    -- Rebuilds the content from the cache and sets the scroll state.
     function DUIBookUIMixin:RebuildContentFromCache()
-        --debug
         if not Cache:IsCurrentObjectFullyCached() then
             return
         end
@@ -1313,53 +1567,64 @@ do  --Formatter
             self:UpdateSourceItemButton();
             self.SourceItemButton:SetItem(Cache:GetCurrentItemID());
         end
-        --print("MAX INDEX", Cache:GetMaxContentIndex());
     end
 
+    -- Empty placeholder; no logic required in the current implementation.
     function DUIBookUIMixin:SetMaxPage(maxPage)
-
     end
 end
 
+
 do  --Main UI
+    -- Initializes the book frame and creates its utility font string.
     function DUIBookUIMixin:OnLoad()
         MainFrame = self;
         addon.BookUI = self;
         self.OnLoad = nil;
         self:SetScript("OnLoad", nil);
 
-        addon.SharedVignette:AddOwner(self);    --"SharedVignette" defined in DialogueUI.lua
+        if addon.SharedVignette then
+            addon.SharedVignette:AddOwner(self);
+        end
 
-        --UtilityFontString is used to evaluate text height
-        local UtilityFontString = self.ContentFrame:CreateFontString(nil, "ARTWORK", "DUIFont_Book_Paragraph");
-        UtilityFontString:SetJustifyV("TOP");
-        --UtilityFontString:SetPoint("TOP", nil, "BOTTOM", 0, -64);
-        UtilityFontString:SetPoint("TOP", MainFrame.ContentFrame, "TOP", 0, 0);
-        --UtilityFontString:SetIgnoreParentAlpha(true);
-        Formatter.UtilityFontString = UtilityFontString;
+        local utilityFontString = self.ContentFrame:CreateFontString(
+            nil,
+            "ARTWORK",
+            "DUIFont_Book_Paragraph"
+        );
+        utilityFontString:SetJustifyV("TOP");
+        utilityFontString:SetPoint("TOP", self.ContentFrame, "TOP", 0, 0);
+        Formatter.UtilityFontString = utilityFontString;
 
         CalculateSizeData();
-        Formatter:SetBaseFontSize(12);  --debug
+        Formatter:SetBaseFontSize(12);
         self:SetFrameHeight(480);
 
-        API.SetPlayCutsceneCallback(function()
-            self:Hide();
-        end);
+        -- 3.3.5 compatibility: Register the cutscene callback only if this addon API provides it.
+        if API.SetPlayCutsceneCallback then
+            API.SetPlayCutsceneCallback(function()
+                self:Hide();
+            end);
+        end
     end
 
+    -- Initializes the header, scroll frame, object pools, and close button.
     function DUIBookUIMixin:Init()
         self.Init = nil;
         self:Reposition();
 
         BookComponent:InitHeader(self.Header);
 
+        local scrollFrame = self.ScrollFrame;
+        addon.InitEasyScrollFrame(
+            scrollFrame,
+            self.Header.HeaderScrollOverlap,
+            self.Footer.FooterDivider
+        );
+        addon.InitRecyclableScrollFrame(scrollFrame);
 
-        --ScrollFrame
-        local ScrollFrame = self.ScrollFrame;
-        addon.InitEasyScrollFrame(ScrollFrame, self.Header.HeaderScrollOverlap, self.Footer.FooterDivider);
-        addon.InitRecyclableScrollFrame(ScrollFrame);
-
-        function ScrollFrame:SetObjectData(obj, data, contentIndex)
+        -- Sets up or updates a pooled visual object for one content record.
+        function scrollFrame:SetObjectData(obj, data, contentIndex)
             if not obj then
                 if data.text then
                     obj = Formatter:AcquireFontStringByTag(data.fontTag);
@@ -1368,50 +1633,39 @@ do  --Main UI
                 end
             end
 
+            if not obj then
+                return nil
+            end
+
             local offsetX = 0;
 
             if data.text then
                 Formatter:SetFontObjectByTag(obj, data.fontTag);
                 obj:SetJustifyH(data.align);
                 obj:SetText(data.text);
-                offsetX = 0;
             elseif data.image then
                 obj:SetSize(data.width, data.height);
                 obj:SetTexture(data.image);
                 obj:SetTexCoord(data.left, data.right, data.top, data.bottom);
-                --[[
-                --Always centralize IMG unless we encounter some edge cases (issue#98)
-                if data.align == "left" then
-                    offsetX = -0.5*(ConvertedSize.CONTENT_WIDTH - data.width);
-                elseif data.align == "right" then
-                    offsetX = 0.5*(ConvertedSize.CONTENT_WIDTH - data.width);
-                else
-                    offsetX = 0;
-                end
-                --]]
-                offsetX = 0;
             end
 
             obj.contentIndex = contentIndex;
             obj:SetPoint("TOP", MainFrame.ContentFrame, "TOP", offsetX, -data.offsetY);
             obj:Show();
 
-            if MainFrame.isReadingContent then
-                if data.text then
-                    if obj.contentIndex == MainFrame.focusedContentIndex then
-                        --obj:SetAlpha(1);
-                        FadeFrame(obj, 0, 1);
-                    else
-                        FadeFrame(obj, 0, OTHER_CONTENT_ALPHA);
-                        --obj:SetAlpha(OTHER_CONTENT_ALPHA);
-                    end
+            if MainFrame.isReadingContent and data.text then
+                if obj.contentIndex == MainFrame.focusedContentIndex then
+                    FadeFrame(obj, 0, 1);
+                else
+                    FadeFrame(obj, 0, OTHER_CONTENT_ALPHA);
                 end
             end
 
             return obj
         end
 
-        function ScrollFrame:GetDataRequiredObjectType(data)
+        -- Returns the visual object type required by a formatted content record.
+        function scrollFrame:GetDataRequiredObjectType(data)
             if data.text then
                 return "FontString"
             elseif data.image then
@@ -1419,126 +1673,166 @@ do  --Main UI
             end
         end
 
-        function ScrollFrame:UpdatePagination()
+        -- Synchronizes the header's selected page with the scroll position.
+        function scrollFrame:UpdatePagination()
             local page = MainFrame:GetCurrentPage();
             MainFrame.Header:SetCurrentPage(page);
         end
-        ScrollFrame:SetUsePagination(true);
 
+        scrollFrame:SetUsePagination(true);
 
-        --Objecti Pool
+        -- Creates a font string for the reusable font-string pool.
         local function CreateFontString()
-            local fontString = self.ContentFrame:CreateFontString(nil, "ARTWORK", "DUIFont_Quest_Paragraph");
+            local fontString = self.ContentFrame:CreateFontString(
+                nil,
+                "ARTWORK",
+                "DUIFont_Quest_Paragraph"
+            );
             fontString:SetSpacing(Formatter.TEXT_SPACING);
             return fontString
         end
 
+        -- Clears and hides a font string before returning it to the pool.
         local function RemoveFontString(fontString)
             fontString:SetText(nil);
             fontString:Hide();
             fontString:ClearAllPoints();
         end
 
+        -- Resets a font string's size and line spacing when acquired from the pool.
         local function OnAcquireFontString(fontString)
             fontString:SetSpacing(Formatter.TEXT_SPACING);
             fontString:SetSize(ConvertedSize.CONTENT_WIDTH, 0);
         end
 
-        self.fontStringPool = API.CreateObjectPool(CreateFontString, RemoveFontString, OnAcquireFontString);
+        self.fontStringPool = API.CreateObjectPool(
+            CreateFontString,
+            RemoveFontString,
+            OnAcquireFontString
+        );
 
-
+        -- Creates a texture for the reusable texture pool.
         local function CreateTexture()
-            local tex = self.ContentFrame:CreateTexture(nil, "ARTWORK");
-            return tex
+            return self.ContentFrame:CreateTexture(nil, "ARTWORK")
         end
 
-        local function RemoveTexture(tex)
-            tex:SetTexture(nil);
-            tex:Hide();
-            tex:ClearAllPoints();
+        -- Clears and hides a texture before returning it to the pool.
+        local function RemoveTexture(texture)
+            texture:SetTexture(nil);
+            texture:Hide();
+            texture:ClearAllPoints();
         end
 
         self.texturePool = API.CreateObjectPool(CreateTexture, RemoveTexture);
-
 
         self.CloseButton = BookComponent:GetCloseButton(self);
 
         self:Resize();
         self:SetTextureKit(1);
-
         self:OnShow();
     end
 
+    -- Releases pooled content objects and clears the focused content index.
     function DUIBookUIMixin:ReleaseAllObjects()
-        if self.Init then return end;
+        if self.Init then
+            return
+        end
 
         self.focusedContentIndex = nil;
-        self.fontStringPool:Release();
-        self.texturePool:Release();
+
+        if self.fontStringPool then
+            self.fontStringPool:Release();
+        end
+        if self.texturePool then
+            self.texturePool:Release();
+        end
     end
 
+    -- Registers combat events and performs show-time setup.
     function DUIBookUIMixin:OnShow()
         EL:RegisterEvent("PLAYER_REGEN_ENABLED");
         EL:RegisterEvent("PLAYER_REGEN_DISABLED");
         EL.inCombat = InCombatLockdown();
+
         self:EnableControls(true);
-        addon.SharedVignette:TryShow();
+
+        if addon.SharedVignette then
+            addon.SharedVignette:TryShow();
+        end
+
         CallbackRegistry:Trigger("BookUI.Show");
     end
 
+    -- Unregisters frame events, clears cached display objects, and restores UI fading.
     function DUIBookUIMixin:OnHide()
         EL:UnregisterEvent("PLAYER_REGEN_ENABLED");
         EL:UnregisterEvent("PLAYER_REGEN_DISABLED");
+
         self:EnableControls(false);
-        CloseItemText();
+
+        if CloseItemText then
+            CloseItemText();
+        end
+
         self:ReleaseAllObjects();
         Cache:ClearObjectCache();
-        self.ScrollFrame:ClearContent();
-        addon.SharedVignette:TryHide();
+
+        if self.ScrollFrame then
+            self.ScrollFrame:ClearContent();
+        end
+
+        if addon.SharedVignette then
+            addon.SharedVignette:TryHide();
+        end
+
         self:StopReadingBook();
         CallbackRegistry:Trigger("BookUI.Hide");
-        FadeHelper:FadeInUI(self);
+
+        -- 3.3.5 compatibility: Check the method with dot syntax before invoking it with colon syntax.
+        if FadeHelper and FadeHelper.FadeInUI then
+            FadeHelper:FadeInUI(self);
+        end
     end
 
+    -- Handles mouse clicks on the book frame, including click-to-read and right-click close.
     function DUIBookUIMixin:OnMouseUp(button)
         if button == "LeftButton" then
-            if GetDBBool("TTSEnabled") and GetDBBool("BookTTSClickToRead") and (not SwipeEmulator:ShouldConsumeClick()) then
+            if GetDBBool("TTSEnabled")
+                and GetDBBool("BookTTSClickToRead")
+                and not SwipeEmulator:ShouldConsumeClick() then
                 self:SpeakCursorFocusContent();
             end
-        elseif button == "RightButton" and GetDBBool("RightClickToCloseUI") and self:IsMouseMotionFocus() then
+        elseif button == "RightButton"
+            and GetDBBool("RightClickToCloseUI")
+            and self:IsMouseMotionFocus() then
             self:Hide();
         end
     end
 
     local EasingFunc = addon.EasingFunctions.outQuart;
     local ANIM_DURATION_SCROLL_EXPAND = 0.5;
+
+    -- Animates the book frame into place after it is shown.
     local function AnimIntro_FlyIn_OnUpdate(self, elapsed)
         self.t = self.t + elapsed;
-        local offsetY = EasingFunc(self.t, -48, 0, ANIM_DURATION_SCROLL_EXPAND);
-        local alpha = 4*self.t;
 
-        if alpha > 1 then
-            alpha = 1;
-        end
+        local offsetY = EasingFunc(self.t, -48, 0, ANIM_DURATION_SCROLL_EXPAND);
+        local alpha = math.min(4 * self.t, 1);
 
         if self.t >= ANIM_DURATION_SCROLL_EXPAND then
             offsetY = 0;
             self.t = 0;
             self:SetScript("OnUpdate", nil);
-
-            local function ShowOutOfBoundObjects(obj)
-                --obj:Show();
-            end
-            self.fontStringPool:ProcessActiveObjects(ShowOutOfBoundObjects);
-            self.texturePool:ProcessActiveObjects(ShowOutOfBoundObjects);
         end
 
         self:SetPoint(self.defaultAnchor, nil, "CENTER", self.defaultOffsetX, offsetY);
         self:SetAlpha(alpha);
     end
 
+    -- Rebuilds and displays the cached book content, then plays its entrance animation.
     function DUIBookUIMixin:ShowUI()
-        if API.IsPlayingCutscene() then
+        -- 3.3.5 compatibility: The cutscene helper may not be provided by the target client.
+        if API.IsPlayingCutscene and API.IsPlayingCutscene() then
             return
         end
 
@@ -1550,38 +1844,62 @@ do  --Main UI
             self:SetAlpha(0);
             self:Show();
             self:SetScript("OnUpdate", AnimIntro_FlyIn_OnUpdate);
-            FadeHelper:FadeOutUI(self);
+
+            if FadeHelper then
+                FadeHelper:FadeOutUI(self);
+            end
         end
 
         CallbackRegistry:Trigger("BookUI.BookCached");
     end
 
+    -- Clears the cached book and hides the book frame.
     function DUIBookUIMixin:HideUI()
         Cache:ClearObjectCache();
         self:Hide();
     end
 
+    -- Hides the book UI when the dialogue UI handles an interaction event.
     CallbackRegistry:Register("DialogueUI.HandleEvent", function()
-        --Close book UI when dialogue UI is showing
-        --Interact with NPC trigger ITEM_TEXT_CLOSED but we have an option to keep the book UI open
-        MainFrame:HideUI();
+        if MainFrame then
+            MainFrame:HideUI();
+        end
     end);
 end
 
+
+
 do  --TTS
+    -- Finds the index of the visible text object currently under the mouse cursor.
     function DUIBookUIMixin:GetCursorFocusContent()
-        if not self:IsMouseMotionFocus() then return end;
+        -- 3.3.5 compatibility: Fall back to IsMouseOver if IsMouseMotionFocus is unavailable.
+        local hasMouseFocus;
+        if self.IsMouseMotionFocus then
+            hasMouseFocus = self:IsMouseMotionFocus();
+        elseif self.IsMouseOver then
+            hasMouseFocus = self:IsMouseOver();
+        end
+
+        if not hasMouseFocus or not self.fontStringPool then
+            return
+        end
 
         for _, obj in self.fontStringPool:EnumerateActive() do
-            if obj:IsMouseOver() then
+            -- 3.3.5 compatibility: Check that the pooled object supports the mouse query.
+            if obj.IsMouseOver and obj:IsMouseOver() then
                 return obj.contentIndex
             end
         end
     end
 
+    -- Fades text objects to emphasize the currently spoken paragraph.
     function DUIBookUIMixin:FadeOtherContent()
-        --Debug make other paragraphs transparent
+        if not self.fontStringPool or not self.ScrollFrame then
+            return
+        end
+
         if self.focusedContentIndex and self.isReadingContent then
+            -- Applies reading and dimmed alpha values to one pooled text object.
             local function FadeObject(obj)
                 if obj.contentIndex == self.focusedContentIndex then
                     FadeFrame(obj, 1, 1);
@@ -1589,28 +1907,29 @@ do  --TTS
                     FadeFrame(obj, 1, OTHER_CONTENT_ALPHA);
                 end
             end
+
             self.fontStringPool:ProcessAllObjects(FadeObject);
+
+            -- Reapplies text emphasis after scrolling finishes.
             self.ScrollFrame.onScrollFinishedCallback = function()
                 self:FadeOtherContent();
-            end;
-        else
-            local FadeObject;
-            if self:IsVisible() then
-                function FadeObject(obj)
-                    FadeFrame(obj, 0.5, 1);
-                end
-            else
-                function FadeObject(obj)
-                    FadeFrame(obj, 0, 1);
-                end
             end
+        else
+            -- Restores full opacity on one pooled text object.
+            local function FadeObject(obj)
+                local duration = self:IsVisible() and 0.5 or 0;
+                FadeFrame(obj, duration, 1);
+            end
+
             self.fontStringPool:ProcessAllObjects(FadeObject);
             self.ScrollFrame.onScrollFinishedCallback = nil;
         end
     end
 
+    -- Stops book narration and restores the normal text appearance.
     function DUIBookUIMixin:StopReadingBook()
         TTSUtil:StopReadingBook();
+
         if self.isReadingContent then
             self.isReadingContent = false;
             self.focusedContentIndex = nil;
@@ -1618,8 +1937,8 @@ do  --TTS
         end
     end
 
+    -- Speaks the next text record and scrolls it into view when necessary.
     function DUIBookUIMixin:ReadAndMoveToNextLine()
-        --We only move the page when the current view cannot contain the full paragrah
         if not self.isReadingContent then
             return
         end
@@ -1631,83 +1950,85 @@ do  --TTS
 
         local contentIndex = (self.focusedContentIndex or 0) + 1;
         local data = Cache:GetContentDataByIndex(contentIndex);
+
+        -- Skip images and other non-text records.
+        while data and not data.text do
+            contentIndex = contentIndex + 1;
+            data = Cache:GetContentDataByIndex(contentIndex);
+        end
+
         local found;
+        if data and data.text then
+            found = true;
+            self.focusedContentIndex = contentIndex;
+            TTSUtil:ReadBookLine(data.text);
 
-        if data then
-            while data and (not data.text) do
-                contentIndex = contentIndex + 1;
-                data = Cache:GetContentDataByIndex(contentIndex);
+            local viewSize = self.ScrollFrame:GetViewSize();
+            local fromOffset = self.ScrollFrame:GetVerticalScroll();
+            local toOffset = fromOffset + viewSize;
+
+            if data.endingOffsetY <= fromOffset
+                or data.offsetY >= toOffset
+                or (data.offsetY <= toOffset and data.endingOffsetY >= toOffset) then
+                local offsetY = data.offsetY - self.scrollFromOffetY;
+                SwipeEmulator:StopWatching(self.ScrollFrame);
+                self:ScrollTo(offsetY);
             end
-
-            if data and data.text then
-                found = true;
-                self.focusedContentIndex = contentIndex;
-                TTSUtil:ReadBookLine(data.text);
-
-                local viewSize = self.ScrollFrame:GetViewSize();
-                local fromOffset = self.ScrollFrame:GetVerticalScroll(); --self:GetScrollTarget();
-                local toOffset = fromOffset + viewSize;
-                if (data.endingOffsetY <= fromOffset) or (data.offsetY >= toOffset) or (data.offsetY <= toOffset and data.endingOffsetY >= toOffset) then
-                    local offsetY = data.offsetY;
-                    offsetY = offsetY - self.scrollFromOffetY;
-                    SwipeEmulator:StopWatching(self.ScrollFrame);
-                    self:ScrollTo(offsetY);
-                end
-            end
-        else
-
         end
 
-        if found then
-            self.isReadingContent = true;
-        else
-            self.isReadingContent = false;
-        end
-
+        self.isReadingContent = found and true or false;
         self:FadeOtherContent();
 
         return found
     end
 
+    -- Starts or stops narration for the text record currently under the cursor.
     function DUIBookUIMixin:SpeakCursorFocusContent()
         local contentIndex = self:GetCursorFocusContent();
-        if contentIndex then
-            if self.focusedContentIndex == contentIndex then
-                self:StopReadingBook();
-                return
-            end
-            local data = Cache:GetContentDataByIndex(contentIndex);
-            if data and data.text then
-                self.focusedContentIndex = contentIndex;
-                self.isReadingContent = true;
-                local userInput = true;
-                TTSUtil:ReadBookLine(data.text, userInput);
-                self:FadeOtherContent();
-            end
+        if not contentIndex then
+            return
+        end
+
+        if self.focusedContentIndex == contentIndex then
+            self:StopReadingBook();
+            return
+        end
+
+        local data = Cache:GetContentDataByIndex(contentIndex);
+        if data and data.text then
+            self.focusedContentIndex = contentIndex;
+            self.isReadingContent = true;
+
+            local userInput = true;
+            TTSUtil:ReadBookLine(data.text, userInput);
+            self:FadeOtherContent();
         end
     end
 
+    -- Starts or stops narration for the first visible text paragraph.
     function DUIBookUIMixin:SpeakTopContent()
-        --For TTSButton, speak the top paragrah
-        if not self:IsVisible() then return end;
+        if not self:IsVisible() then
+            return
+        end
 
         local contentIndex = 1;
         local data = Cache:GetContentDataByIndex(contentIndex);
 
         if data then
-            local viewSize = self.ScrollFrame:GetViewSize();
             local fromOffset = self.ScrollFrame:GetVerticalScroll();
-            local toOffset = fromOffset + viewSize;
             local foundIndex;
+
             while data do
-                if data.text and ((data.offsetY <= fromOffset and data.endingOffsetY >= fromOffset) or (data.offsetY >= fromOffset))  then
-                    local offsetY = data.offsetY;
-                    offsetY = offsetY - self.scrollFromOffetY;
+                if data.text
+                    and ((data.offsetY <= fromOffset and data.endingOffsetY >= fromOffset)
+                    or data.offsetY >= fromOffset) then
+                    local offsetY = data.offsetY - self.scrollFromOffetY;
                     SwipeEmulator:StopWatching(self.ScrollFrame);
                     self:ScrollTo(offsetY);
                     foundIndex = contentIndex;
                     break
                 end
+
                 contentIndex = contentIndex + 1;
                 data = Cache:GetContentDataByIndex(contentIndex);
             end
@@ -1717,10 +2038,12 @@ do  --TTS
                     self:StopReadingBook();
                     return
                 end
+
                 data = Cache:GetContentDataByIndex(foundIndex);
                 if data and data.text then
                     self.focusedContentIndex = foundIndex;
                     self.isReadingContent = true;
+
                     local userInput = true;
                     TTSUtil:ReadBookLine(data.text, userInput);
                     self:FadeOtherContent();
@@ -1729,150 +2052,192 @@ do  --TTS
         end
     end
 
+    -- Scrolls the currently focused or hovered text record toward the top of the view.
     function DUIBookUIMixin:GetAndScrollToNextText()
         local contentIndex = self.focusedContentIndex or self:GetCursorFocusContent();
-        if contentIndex then
-            local data = Cache:GetContentDataByIndex(contentIndex);
-            if data then
-                local offsetY = data.offsetY;
-                offsetY = offsetY - self.scrollFromOffetY;
-                self:ScrollTo(offsetY);
-            end
+        if not contentIndex then
+            return
+        end
+
+        local data = Cache:GetContentDataByIndex(contentIndex);
+        if data then
+            local offsetY = data.offsetY - self.scrollFromOffetY;
+            self:ScrollTo(offsetY);
         end
     end
 end
 
+
+
 do  --Keyboard Control, In Combat Behavior
     local IsModifierKeyDown = IsModifierKeyDown;
 
+    -- Safely changes whether unhandled keyboard input is passed to the game.
+    local function SetKeyboardInputPropagation(frame, shouldPropagate)
+        -- 3.3.5 compatibility: This method is not available on all legacy clients.
+        if frame.SetPropagateKeyboardInput then
+            frame:SetPropagateKeyboardInput(shouldPropagate);
+        end
+    end
+
+    -- Enables supported keyboard and gamepad controls, or disables them.
     function DUIBookUIMixin:EnableControls(state)
-        if state and not InCombatLockdown() then
+        local inCombat = InCombatLockdown and InCombatLockdown();
+
+        -- 3.3.5 compatibility: Enable keyboard capture only when propagation can be controlled.
+        local supportsKeyboardInput = self.SetPropagateKeyboardInput and self.EnableKeyboard;
+        if state and not inCombat and supportsKeyboardInput then
+            self:EnableKeyboard(true);
             self:SetScript("OnKeyDown", self.OnKeyDown);
+        else
+            self:SetScript("OnKeyDown", nil);
+            if self.EnableKeyboard then
+                self:EnableKeyboard(false);
+            end
+        end
+
+        -- 3.3.5 compatibility: Gamepad frame scripts and stick APIs are optional.
+        local supportsGamePad = self.EnableGamePadStick ~= nil;
+        if supportsGamePad and state and not inCombat then
             self:SetScript("OnGamePadStick", self.OnGamePadStick);
             self:SetScript("OnGamePadButtonDown", self.OnGamePadButtonDown);
             self:SetScript("OnGamePadButtonUp", self.OnGamePadButtonUp);
             self:EnableGamePadStick(true);
         else
-            self:SetScript("OnKeyDown", nil);
             self:SetScript("OnGamePadStick", nil);
             self:SetScript("OnGamePadButtonDown", nil);
             self:SetScript("OnGamePadButtonUp", nil);
-            self:EnableGamePadStick(false);
+
+            if self.EnableGamePadStick then
+                self:EnableGamePadStick(false);
+            end
         end
     end
 
+    -- Handles supported keyboard shortcuts and manages propagation to the game.
     function DUIBookUIMixin:OnKeyDown(key)
-        local valid = false;
+        local handled = false;
 
         if key == "ESCAPE" then
-            valid = true;
-            if addon.Clipboard:CloseIfShown() then
-
-            else
+            handled = true;
+            if not addon.Clipboard:CloseIfShown() then
                 self:Hide();
             end
         elseif key == "F1" then
-            valid = true;
+            handled = true;
             addon.SettingsUI:ToggleUI();
-        elseif BindingUtil:GetActiveKeyAction(key) == "TTS" and (not IsModifierKeyDown()) and GetDBBool("TTSEnabled") and GetDBBool("TTSUseHotkey") then
-            valid = true;
+        elseif BindingUtil:GetActiveKeyAction(key) == "TTS"
+            and not (IsModifierKeyDown and IsModifierKeyDown())
+            and GetDBBool("TTSEnabled")
+            and GetDBBool("TTSUseHotkey") then
+            handled = true;
             addon.TTSUtil:ToggleSpeaking("book");
         else
-            local action = GetBindingAction(key);
+            local action = GetBindingAction and GetBindingAction(key);
             if action == "OPENALLBAGS" or action == "TOGGLEBACKPACK" then
-                valid = true;
+                handled = true;
                 self:Hide();
             end
         end
 
-        if InCombatLockdown() then
+        -- 3.3.5 compatibility: Avoid invoking the lockdown API if unavailable.
+        if InCombatLockdown and InCombatLockdown() then
             self:Hide();
         else
-            self:SetPropagateKeyboardInput(not valid);
+            SetKeyboardInputPropagation(self, not handled);
         end
     end
 
+    -- Handles supported gamepad-stick movement when the client provides gamepad APIs.
     function DUIBookUIMixin:OnGamePadStick(stick, x, y, len)
-        --SetPropagateKeyboardInput Also affect Joystick
+        if not self.ScrollFrame or not self.ScrollFrame.SteadyScroll then
+            return
+        end
+
         if stick == "Right" then
             if not EL.inCombat then
-                self:SetPropagateKeyboardInput(false);
+                SetKeyboardInputPropagation(self, false);
             end
             self.ScrollFrame:SteadyScroll(-y);
         elseif stick ~= "Camera" then
             if not EL.inCombat then
-                self:SetPropagateKeyboardInput(true);
+                SetKeyboardInputPropagation(self, true);
             end
         end
     end
 
+    -- Handles supported gamepad button presses for navigation, settings, and narration.
     function DUIBookUIMixin:OnGamePadButtonDown(button)
-        local valid = false;
+        local handled = false;
 
         if button == "PADLSHOULDER" or button == "PADDLEFT" then
             if self.scrollable then
-                valid = true;
+                handled = true;
                 self:ScrollToNearPrevPage();
             end
         elseif button == "PADRSHOULDER" or button == "PADDRIGHT" then
             if self.scrollable then
-                valid = true;
+                handled = true;
                 self:ScrollToNearNextPage();
             end
         elseif button == "PADMENU" or button == "PADFORWARD" then
-            valid = true;
+            handled = true;
             addon.SettingsUI:ToggleUI();
         elseif button == "PADBACK" or button == "PAD2" then
-            valid = true;
-            if addon.Clipboard:CloseIfShown() then
-
-            else
+            handled = true;
+            if not addon.Clipboard:CloseIfShown() then
                 self:Hide();
             end
-        elseif button == "PADLTRIGGER" and (not IsModifierKeyDown()) and GetDBBool("TTSEnabled") and GetDBBool("TTSUseHotkey") then
-            valid = true;
+        elseif button == "PADLTRIGGER"
+            and not (IsModifierKeyDown and IsModifierKeyDown())
+            and GetDBBool("TTSEnabled")
+            and GetDBBool("TTSUseHotkey") then
+            handled = true;
             addon.TTSUtil:ToggleSpeaking("book");
         elseif button == "PADDUP" then
-            if self.scrollable then
-                valid = true;
+            if self.scrollable and self.ScrollFrame.SteadyScroll then
+                handled = true;
                 self.ScrollFrame:SteadyScroll(-0.8);
             end
         elseif button == "PADDDOWN" then
-            if self.scrollable then
-                valid = true;
+            if self.scrollable and self.ScrollFrame.SteadyScroll then
+                handled = true;
                 self.ScrollFrame:SteadyScroll(0.8);
             end
         end
 
         if not EL.inCombat then
-            self:SetPropagateKeyboardInput(not valid);
+            SetKeyboardInputPropagation(self, not handled);
         end
     end
 
+    -- Stops continuous gamepad scrolling when the corresponding direction is released.
     function DUIBookUIMixin:OnGamePadButtonUp(button)
-        if self.scrollable then
-            local valid;
-            if button == "PADDUP" then
-                valid = true;
-                self.ScrollFrame:StopSteadScroll();
-            elseif button == "PADDDOWN" then
-                valid = true;
-                self.ScrollFrame:StopSteadScroll();
-            end
+        if not self.scrollable or not self.ScrollFrame.StopSteadScroll then
+            return
+        end
 
-            if not EL.inCombat then
-                self:SetPropagateKeyboardInput(not valid);
-            end
+        local handled = button == "PADDUP" or button == "PADDDOWN";
+        if handled then
+            self.ScrollFrame:StopSteadScroll();
+        end
+
+        if not EL.inCombat then
+            SetKeyboardInputPropagation(self, not handled);
         end
     end
 end
 
+
+
 do  --EventListener
+    -- 3.3.5 compatibility: This listener only needs the core readable-item events.
+    -- ITEM_TEXT_TRANSLATION had no handling here and is omitted to avoid registering
+    -- an event that may not exist on the target client.
     local BOOK_EVENTS = {
         "ITEM_TEXT_BEGIN",
         "ITEM_TEXT_READY",
         "ITEM_TEXT_CLOSED",
-        "ITEM_TEXT_TRANSLATION",
     };
 
     local MaterialTextureKitID = {
@@ -1886,16 +2251,22 @@ do  --EventListener
         ["Progenitor"] = 2,
     };
 
+    -- Hides the book after the readable interface closes, unless the setting keeps it open.
     function EL:OnUpdate(elapsed)
         self.t = self.t + elapsed;
         if self.t > 0.03 then
             self:SetScript("OnUpdate", nil);
-            if (not self.showItemText) and MainFrame:IsShown() and (not GetDBBool("BookKeepUIOpen")) then
+
+            if not self.showItemText
+                and MainFrame
+                and MainFrame:IsShown()
+                and not GetDBBool("BookKeepUIOpen") then
                 MainFrame:Hide();
             end
         end
     end
 
+    -- Schedules a delayed check after readable-item events have settled.
     function EL:ProcessEventNextUpdate(customDelay)
         customDelay = customDelay or 0;
         self.t = -customDelay;
@@ -1903,35 +2274,39 @@ do  --EventListener
         self:SetScript("OnUpdate", self.OnUpdate);
     end
 
+    -- Handles readable-item lifecycle and player combat events.
     function EL:OnEvent(event, ...)
         if event == "ITEM_TEXT_BEGIN" then
-            --1st start interacting with book
+            if not MainFrame then
+                return
+            end
+
             if MainFrame.Init then
                 MainFrame:Init();
             end
 
-            local material = ItemTextGetMaterial() or "Parchment";
-            --material = "Stone"; --debug  Parchment Stone
+            -- 3.3.5 compatibility: Use the legacy ItemText globals when available.
+            local material = (ItemTextGetMaterial and ItemTextGetMaterial()) or "Parchment";
             local textureKitID = MaterialTextureKitID[material] or 1;
             MainFrame:SetTextureKit(textureKitID);
 
-            --if QuestUtil.QuestTextContrastUseLightText() then
-
-            local guid = UnitGUID("npc");
+            local guid = UnitGUID and UnitGUID("npc");
             local objectType, objectID, itemID;
 
             if guid then
                 objectType, objectID, itemID = GetObjectTypeAndID(guid);
             end
 
-            local isObjectChanged = Cache:SetActiveObject(objectType, objectID, itemID);
+            Cache:SetActiveObject(objectType, objectID, itemID);
 
             MainFrame.Header:QueryLetterSender(nil);
             if objectType == "GameObject" then
                 MainFrame.Header:SetLocation(true, Cache:GetBookLocation());
             else
                 MainFrame.Header:SetLocation(false);
-                if itemID == 8383 then  --Plain Letter
+
+                -- Plain Letter
+                if itemID == 8383 then
                     MainFrame.Header:QueryLetterSender(guid);
                 end
             end
@@ -1944,88 +2319,108 @@ do  --EventListener
 
         elseif event == "ITEM_TEXT_READY" then
             self.showItemText = true;
-            --Game shows ItemTextFrame here
-            --local creator = ItemTextGetCreator();   --Niable, "\n\n"..ITEM_TEXT_FROM.."\n"..creator.."\n"
 
-            if (not Cache.needTurnBack) and Cache:IsCurrentObjectFullyCached() then
-                --MainFrame:ShowUI();
+            if not Cache.needTurnBack and Cache:IsCurrentObjectFullyCached() then
+                -- The cached UI is already ready.
             elseif Cache.needTurnBack and IsMultiPageBook() then
-                --Cache:RequestTurnPrevPage();
+                -- The current page will be turned back by the normal close flow.
             elseif not Cache:IsCurrentObjectFullyCached() then
                 Cache:CacheCurrentPage();
             end
 
         elseif event == "ITEM_TEXT_CLOSED" then
-            --Game closes ItemTextFrame here
             if self.itemTextBegun then
                 self.itemTextBegun = false;
                 Cache:SavePagePosition();
-                CloseItemText();
-            end
-            self.showItemText = false;
-            --MainFrame:Hide();
-            self:ProcessEventNextUpdate();          --Clicking on a currently read book triggers 2 Close - 1 Begin - 1 Ready
 
-        elseif event == "ITEM_TEXT_TRANSLATION" then
-            --Game shows ItemTextFrame here (Classic only?)
-            local delay = ...
+                -- 3.3.5 compatibility: Guard the legacy close function before calling it.
+                if CloseItemText then
+                    CloseItemText();
+                end
+            end
+
+            self.showItemText = false;
+            -- Readable interaction may emit multiple close/begin/ready events in quick succession.
+            self:ProcessEventNextUpdate();
 
         elseif event == "PLAYER_REGEN_DISABLED" then
             self.inCombat = true;
-            MainFrame:SetPropagateKeyboardInput(true);
-            MainFrame:EnableControls(false);
-            if self:IsShown() then
+
+            -- 3.3.5 compatibility: Keyboard propagation controls are not present on every client.
+            if MainFrame and MainFrame.SetPropagateKeyboardInput then
+                MainFrame:SetPropagateKeyboardInput(true);
+            end
+
+            if MainFrame then
+                MainFrame:EnableControls(false);
+            end
+
+            if self:IsShown() and addon.CameraUtil
+                and addon.CameraUtil.OnEnterCombatDuringInteraction then
                 addon.CameraUtil:OnEnterCombatDuringInteraction();
             end
+
         elseif event == "PLAYER_REGEN_ENABLED" then
             self.inCombat = false;
-            if MainFrame:IsVisible() then
+
+            if MainFrame and MainFrame:IsVisible() then
                 MainFrame:EnableControls(true);
             end
         end
-
-        --print(event, ..., GetTimePreciseSec()); --debug
     end
 
+    -- Transfers readable-item event handling between this listener and Blizzard's frame.
     function EL:EnableModule(state)
-        local f = ItemTextFrame;
+        local itemTextFrame = ItemTextFrame;
+
         if state then
+            if self.enabled then
+                return
+            end
+
             self.enabled = true;
             self:SetScript("OnEvent", self.OnEvent);
-            for _, event in ipairs(BOOK_EVENTS) do
-                self:RegisterEvent(event);
+
+            for _, eventName in ipairs(BOOK_EVENTS) do
+                self:RegisterEvent(eventName);
             end
-            if f then
-                f:UnregisterAllEvents();
+
+            if itemTextFrame then
+                itemTextFrame:UnregisterAllEvents();
             end
         elseif self.enabled then
             self.enabled = false;
             self:SetScript("OnEvent", nil);
             self:UnregisterAllEvents();
-            for _, event in ipairs(BOOK_EVENTS) do
-                if f then
-                    f:RegisterEvent(event);
+
+            for _, eventName in ipairs(BOOK_EVENTS) do
+                if itemTextFrame then
+                    itemTextFrame:RegisterEvent(eventName);
                 end
             end
         end
     end
 
+    -- Enables or disables the custom book UI according to the caller and saved setting.
     local function EnableBookUI(state)
-        --Used in Core.lua, related settings ("Use WoW's Default UI In Instance")
         state = state and GetDBBool("BookUIEnabled");
+
         if state then
             if not EL.enabled then
                 EL:EnableModule(true);
             end
-        else
-            if EL.enabled then
-                EL:EnableModule(false);
+        elseif EL.enabled then
+            EL:EnableModule(false);
+
+            if MainFrame then
                 MainFrame:Hide();
             end
         end
     end
+
     addon.EnableBookUI = EnableBookUI;
 end
+
 
 
 do  --Settings
@@ -2037,21 +2432,31 @@ do  --Settings
         [4] = 1.4,
     };
 
+    -- Applies the changed layout after a delay to avoid repeated recalculation.
     function DUIBookUIMixin:OnSettingsChanged()
-        if not self:IsShown() then return end;
+        if not self:IsShown() then
+            return
+        end
 
         if not self.settingsDirty then
             self.settingsDirty = true;
-            C_Timer.After(0, function()
+
+            if C_Timer and C_Timer.After then
+                C_Timer.After(0, function()
+                    self.settingsDirty = nil;
+                    CalculateSizeData();
+                    Cache:CalculateTextHeight();
+                end)
+            else
                 self.settingsDirty = nil;
                 CalculateSizeData();
                 Cache:CalculateTextHeight();
-            end)
+            end
         end
     end
 
+    -- Reacts to the selected book size scale.
     local function Settings_FrameSize(dbValue)
-        --Image size doesn't get recalculated until cache is wiped (close and repoen book to take effect)
         if GetDBBool("MobileDeviceMode") then
             dbValue = 4;
         end
@@ -2059,35 +2464,47 @@ do  --Settings
         local newScale = dbValue and FrameSizeIndexScale[dbValue];
         if newScale then
             if newScale ~= FRAME_SIZE_MULTIPLIER then
-                MainFrame:OnSettingsChanged();
+                if MainFrame and MainFrame.OnSettingsChanged then
+                    MainFrame:OnSettingsChanged();
+                end
             end
+
             FRAME_SIZE_MULTIPLIER = newScale;
             CalculateSizeData();
-            if not MainFrame.Init then
+
+            if MainFrame and not MainFrame.Init then
                 MainFrame:Resize();
             end
         end
     end
     CallbackRegistry:Register("SettingChanged.BookUISize", Settings_FrameSize);
 
+    -- Recalculates the size and formatting after a font change.
     local function OnFontSizeChanged(baseFontSize, fontSizeID)
         Formatter:SetBaseFontSize(baseFontSize);
-        MainFrame:OnSettingsChanged();
+        if MainFrame and MainFrame.OnSettingsChanged then
+            MainFrame:OnSettingsChanged();
+        end
     end
     CallbackRegistry:Register("FontSizeChanged", OnFontSizeChanged);
 
+    -- Enables or disables the event listener for the book display.
     local function Settings_BookUIEnabled(state)
         EL:EnableModule(state);
     end
     CallbackRegistry:Register("SettingChanged.BookUIEnabled", Settings_BookUIEnabled);
 
+    -- Toggles the vignette background for the book.
     local function Settings_BookDarkenScreen(state)
-        MainFrame.ScreenVignette:SetShown(state);
+        if MainFrame and MainFrame.ScreenVignette then
+            MainFrame.ScreenVignette:SetShown(state);
+        end
     end
     CallbackRegistry:Register("SettingChanged.BookDarkenScreen", Settings_BookDarkenScreen);
 
+    -- Shows or hides the book location text in the title bar.
     local function Settings_BookShowLocation(state)
-        if MainFrame:IsShown() then
+        if MainFrame and MainFrame:IsShown() then
             if state then
                 MainFrame.Header:SetLocation(true, Cache:GetBookLocation());
             else
@@ -2097,65 +2514,89 @@ do  --Settings
     end
     CallbackRegistry:Register("SettingChanged.BookShowLocation", Settings_BookShowLocation);
 
-
     --TTS and Copy Buttons
     local TTSButton;
 
+    -- Enables or disables the TTS button on the book frame.
     local function Settings_TTSEnabled(dbValue)
         if dbValue == true then
             if not TTSButton then
                 local themeID = 3;
-                TTSButton = addon.CreateTTSButton(MainFrame, themeID);
-                TTSButton:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 8, -8);
-                TTSButton.system = "book";
-                MainFrame.TTSButton = TTSButton;
+                if addon.CreateTTSButton then
+                    TTSButton = addon.CreateTTSButton(MainFrame, themeID);
+                    TTSButton:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 8, -8);
+                    TTSButton.system = "book";
+                    MainFrame.TTSButton = TTSButton;
+                end
             end
-            TTSButton:Show();
-            if MainFrame.widgetTheme then
-                TTSButton:SetTheme(MainFrame.widgetTheme);
+
+            if TTSButton then
+                TTSButton:Show();
+
+                if MainFrame and MainFrame.widgetTheme then
+                    TTSButton:SetTheme(MainFrame.widgetTheme);
+                end
             end
         else
             if TTSButton then
                 TTSButton:Hide();
             end
         end
-        MainFrame:LayoutWidgets();
+
+        if MainFrame then
+            MainFrame:LayoutWidgets();
+        end
     end
     CallbackRegistry:Register("SettingChanged.TTSEnabled", Settings_TTSEnabled);
 
-    --Clipboard
+    -- Clipboard
     local CopyTextButton;
 
+    -- Opens the clipboard if the book content should be copied.
     local function CopyTextButton_OnClick(self)
-        if addon.Clipboard:CloseIfFromSameSender(self) then
+        if addon.Clipboard and addon.Clipboard:CloseIfFromSameSender(self) then
             return
         end
+
         local str = Cache:GetRawContent(true);
-        addon.Clipboard:ShowContent(str, self);
+        if addon.Clipboard then
+            addon.Clipboard:ShowContent(str, self);
+        end
     end
 
+    -- Enables or disables the copy-text button on the book frame.
     local function Settings_ShowCopyTextButton(dbValue)
         if dbValue == true then
             if not CopyTextButton then
-                local themeID = 1;  --Brown
-                CopyTextButton = addon.CreateCopyTextButton(MainFrame, CopyTextButton_OnClick, themeID);
-                CopyTextButton:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -8, -8);
-                MainFrame.CopyTextButton = CopyTextButton;
-                CopyTextButton:SetWidth(16);    --down from 24
+                local themeID = 1;
+                if addon.CreateCopyTextButton then
+                    CopyTextButton = addon.CreateCopyTextButton(MainFrame, CopyTextButton_OnClick, themeID);
+                    CopyTextButton:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -8, -8);
+                    MainFrame.CopyTextButton = CopyTextButton;
+                    CopyTextButton:SetWidth(16);
+                end
             end
-            CopyTextButton:Show();
-            if MainFrame.widgetTheme then
-                CopyTextButton:SetTheme(MainFrame.widgetTheme);
+
+            if CopyTextButton then
+                CopyTextButton:Show();
+
+                if MainFrame and MainFrame.widgetTheme then
+                    CopyTextButton:SetTheme(MainFrame.widgetTheme);
+                end
             end
         else
             if CopyTextButton then
                 CopyTextButton:Hide();
             end
         end
-        MainFrame:LayoutWidgets();
+
+        if MainFrame then
+            MainFrame:LayoutWidgets();
+        end
     end
     CallbackRegistry:Register("SettingChanged.ShowCopyTextButton", Settings_ShowCopyTextButton);
 
+    -- Positions the optional TTS and copy buttons relative to the main frame.
     function DUIBookUIMixin:LayoutWidgets()
         local object1, object2;
 
@@ -2175,6 +2616,7 @@ do  --Settings
             local offset = ConvertedSize.CLOSE_BUTTON_OFFSET;
             object1:ClearAllPoints();
             object1:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", offset, -offset);
+
             if object2 then
                 object2:ClearAllPoints();
                 object2:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", offset + 32, -offset);
@@ -2182,22 +2624,28 @@ do  --Settings
         end
     end
 
-
     --Source Item Button
     local SourceItemButton;
 
+    -- Enables or disables the source-item metadata area beneath the book title.
     local function Settings_BookUIItemDescription(state, userInput)
         if state then
             if not SourceItemButton then
-                SourceItemButton = BookComponent:CreateSourceItemButton(MainFrame);
-                SourceItemButton:SetPoint("BOTTOM", MainFrame, "TOP", 0, 16);
-                MainFrame.SourceItemButton = SourceItemButton;
+                if BookComponent and BookComponent.CreateSourceItemButton then
+                    SourceItemButton = BookComponent:CreateSourceItemButton(MainFrame);
+                    SourceItemButton:SetPoint("BOTTOM", MainFrame, "TOP", 0, 16);
+                    MainFrame.SourceItemButton = SourceItemButton;
+                end
             end
-            SourceItemButton:Show();
-            SourceItemButton:SetTexture(MainFrame.textureFile);
-            if MainFrame:IsShown() then
-                MainFrame:Resize();
-                SourceItemButton:SetItem(Cache:GetCurrentItemID());
+
+            if SourceItemButton then
+                SourceItemButton:Show();
+                SourceItemButton:SetTexture(MainFrame.textureFile);
+
+                if MainFrame and MainFrame:IsShown() then
+                    MainFrame:Resize();
+                    SourceItemButton:SetItem(Cache:GetCurrentItemID());
+                end
             end
         else
             if SourceItemButton then
