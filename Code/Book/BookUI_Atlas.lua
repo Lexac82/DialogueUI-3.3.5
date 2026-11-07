@@ -7,17 +7,23 @@ local BookComponent = addon.BookComponent;
 local Atlas = {};
 local TextureSize = {};
 
+-- Registers the texture's aspect ratio and normalized texture coordinates
+-- in the Atlas table for later lookup.
 local function CalculateCoord(file, ratio, width, height, left, right, top, bottom)
     --ratio: height / width
     Atlas[file] = {ratio, left/width, right/width, top/height, bottom/height};
 end
 
+-- Returns the registered aspect ratio and normalized texture coordinates
+-- for a file, or nil if no coordinates have been registered for it.
 function BookComponent:GetTextureCoordForFile(file)
     if Atlas[file] then
         return unpack(Atlas[file])
     end
 end
 
+-- Returns the registered pixel width and height for a file,
+-- or nil values if no custom size has been registered for it.
 function BookComponent:GetTextureSize(file)
     if TextureSize[file] then
         return TextureSize[file][1], TextureSize[file][2]
