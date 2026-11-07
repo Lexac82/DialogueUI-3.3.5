@@ -123,7 +123,15 @@
                             </Anchors>
                         </Texture>
 
-                        <!-- HINT: The divider mask used by modern clients is intentionally omitted. -->
+                        <!-- Reserved area behind pagination buttons; Lua controls its size and visibility. -->
+                        <Texture name="$parentHeaderDividerExclusion" hidden="true">
+                            <Size x="1" y="1"/>
+                            <Anchors>
+                                <Anchor point="CENTER"
+                                    relativeTo="$parentHeaderDivider"
+                                    relativePoint="CENTER"/>
+                            </Anchors>
+                        </Texture>
                     </Layer>
 
                     <Layer level="OVERLAY" textureSubLevel="3">
