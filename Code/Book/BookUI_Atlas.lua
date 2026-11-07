@@ -1,7 +1,9 @@
---Manually define WoW textures used in the book that doesn't have TexCoord (Artifact Book)
+--Manually define WoW textures used in the book that don't have TexCoord (Artifact Book)
 
+-- 3.3.5 compatibility: This file uses Lua 5.1-compatible syntax and APIs.
 local _, addon = ...
 
+-- 3.3.5 compatibility: WoW 3.3.5 uses Lua 5.1, where unpack is a global function.
 local unpack = unpack;
 local BookComponent = addon.BookComponent;
 local Atlas = {};
@@ -30,6 +32,8 @@ function BookComponent:GetTextureSize(file)
     end
 end
 
+-- 3.3.5 compatibility: These entries only provide coordinates; the texture files
+-- must also be available to the 3.3.5 client, for example as addon-provided assets.
 do  --Artifact Book
     --interface/pictures/artifactbook
     local WIDTH, HEIGHT = 512, 256;
