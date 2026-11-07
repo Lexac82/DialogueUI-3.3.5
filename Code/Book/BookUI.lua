@@ -115,36 +115,40 @@ end
 
 -- Extracts the object type and ID from a GUID when the client supports it.
 local function GetObjectTypeAndID(guid)
-    -- 3.3.5 compatibility: Avoid calling API.canaccessvalue if it is unavailable.
-    if not API.canaccessvalue or not API.canaccessvalue(guid) then
-        return;
+    -- 3.3.5 compatibility: Apply restricted-value checks only when the helper exists.
+    if not guid or (API.canaccessvalue and not API.canaccessvalue(guid)) then
+        return
     end
 
-    local type = match(guid, "^(%a+)%-");
-    if type == "GameObject" then
+    local objectType = match(guid, "^(%a+)%-");
+    if objectType == "GameObject" then
         local id = match(guid, "GameObject%-%d+%-%d+%-%d+%-%d+%-(%d+)");
         if id then
-            return type, tonumber(id)
+            return objectType, tonumber(id)
         end
-    elseif type == "Item" then
+    elseif objectType == "Item" then
         if GetItemIDByGUID then
             local itemID = GetItemIDByGUID(guid);
-            return type, itemID, itemID
-        else
-            -- 3.3.5 compatibility: Retail-only GUID helper is missing; fall back to the GUID itself.
-            return type, guid
+            return objectType, itemID, itemID
         end
+
+        -- 3.3.5 compatibility: Fall back to the GUID when the Retail helper is unavailable.
+        return objectType, guid
     end
 end
 
 -- Checks whether the current book has multiple pages.
 local function IsMultiPageBook()
-    -- 3.3.5 compatibility: ItemText APIs may still exist, but the next-page check should be guarded.
+    -- 3.3.5 compatibility: Guard the legacy ItemText functions and page result.
     if not ItemTextGetPage or not ItemTextHasNextPage then
         return false
     end
 
     local page = ItemTextGetPage();
+    if not page then
+        return false
+    end
+
     local hasNext = ItemTextHasNextPage();
     return (page == 1 and hasNext) or (page > 1)
 end
@@ -682,6 +686,8 @@ function DUIBookFrame_OnLoad(frame)
     frame.ScrollFrame.ScrollChild = _G["DUIBookFrameScrollFrameScrollChild"];
     frame.Header = _G["DUIBookFrameHeader"];
     frame.Header.HeaderDivider = _G["DUIBookFrameHeaderHeaderDivider"];
+    -- 3.3.5 compatibility: Bind the pagination divider element declared in BookUI.xml.
+    frame.Header.HeaderDividerExclusion = _G["DUIBookFrameHeaderHeaderDividerExclusion"];
     frame.Header.HeaderScrollOverlap = _G["DUIBookFrameHeaderHeaderScrollOverlap"];
     frame.Footer = _G["DUIBookFrameFooter"];
     frame.Footer.FooterDivider = _G["DUIBookFrameFooterFooterDivider"];
@@ -2068,53 +2074,37 @@ do  --TTS
 end
 
 
-
-do  --Keyboard Control, In Combat Behavior
+do  --Keyboard Control
     local IsModifierKeyDown = IsModifierKeyDown;
 
-    -- Safely changes whether unhandled keyboard input is passed to the game.
+    -- Safely changes whether unhandled keyboard input is passed through to the game.
     local function SetKeyboardInputPropagation(frame, shouldPropagate)
-        -- 3.3.5 compatibility: This method is not available on all legacy clients.
+        -- 3.3.5 compatibility: This method is not available on the WotLK client.
         if frame.SetPropagateKeyboardInput then
             frame:SetPropagateKeyboardInput(shouldPropagate);
         end
     end
 
-    -- Enables supported keyboard and gamepad controls, or disables them.
+    -- Enables keyboard shortcuts only when the client supports safe input propagation.
     function DUIBookUIMixin:EnableControls(state)
         local inCombat = InCombatLockdown and InCombatLockdown();
 
-        -- 3.3.5 compatibility: Enable keyboard capture only when propagation can be controlled.
-        local supportsKeyboardInput = self.SetPropagateKeyboardInput and self.EnableKeyboard;
-        if state and not inCombat and supportsKeyboardInput then
+        -- 3.3.5 compatibility: Without propagation control, capturing keys could block normal game input.
+        local canCaptureKeyboard = self.EnableKeyboard and self.SetPropagateKeyboardInput;
+
+        if state and not inCombat and canCaptureKeyboard then
             self:EnableKeyboard(true);
             self:SetScript("OnKeyDown", self.OnKeyDown);
         else
             self:SetScript("OnKeyDown", nil);
+
             if self.EnableKeyboard then
                 self:EnableKeyboard(false);
             end
         end
-
-        -- 3.3.5 compatibility: Gamepad frame scripts and stick APIs are optional.
-        local supportsGamePad = self.EnableGamePadStick ~= nil;
-        if supportsGamePad and state and not inCombat then
-            self:SetScript("OnGamePadStick", self.OnGamePadStick);
-            self:SetScript("OnGamePadButtonDown", self.OnGamePadButtonDown);
-            self:SetScript("OnGamePadButtonUp", self.OnGamePadButtonUp);
-            self:EnableGamePadStick(true);
-        else
-            self:SetScript("OnGamePadStick", nil);
-            self:SetScript("OnGamePadButtonDown", nil);
-            self:SetScript("OnGamePadButtonUp", nil);
-
-            if self.EnableGamePadStick then
-                self:EnableGamePadStick(false);
-            end
-        end
     end
 
-    -- Handles supported keyboard shortcuts and manages propagation to the game.
+    -- Handles book keyboard shortcuts and passes unhandled keys through to the game.
     function DUIBookUIMixin:OnKeyDown(key)
         local handled = false;
 
@@ -2140,94 +2130,14 @@ do  --Keyboard Control, In Combat Behavior
             end
         end
 
-        -- 3.3.5 compatibility: Avoid invoking the lockdown API if unavailable.
+        -- 3.3.5 compatibility: Guard the lockdown check and propagation API.
         if InCombatLockdown and InCombatLockdown() then
             self:Hide();
         else
             SetKeyboardInputPropagation(self, not handled);
         end
     end
-
-    -- Handles supported gamepad-stick movement when the client provides gamepad APIs.
-    function DUIBookUIMixin:OnGamePadStick(stick, x, y, len)
-        if not self.ScrollFrame or not self.ScrollFrame.SteadyScroll then
-            return
-        end
-
-        if stick == "Right" then
-            if not EL.inCombat then
-                SetKeyboardInputPropagation(self, false);
-            end
-            self.ScrollFrame:SteadyScroll(-y);
-        elseif stick ~= "Camera" then
-            if not EL.inCombat then
-                SetKeyboardInputPropagation(self, true);
-            end
-        end
-    end
-
-    -- Handles supported gamepad button presses for navigation, settings, and narration.
-    function DUIBookUIMixin:OnGamePadButtonDown(button)
-        local handled = false;
-
-        if button == "PADLSHOULDER" or button == "PADDLEFT" then
-            if self.scrollable then
-                handled = true;
-                self:ScrollToNearPrevPage();
-            end
-        elseif button == "PADRSHOULDER" or button == "PADDRIGHT" then
-            if self.scrollable then
-                handled = true;
-                self:ScrollToNearNextPage();
-            end
-        elseif button == "PADMENU" or button == "PADFORWARD" then
-            handled = true;
-            addon.SettingsUI:ToggleUI();
-        elseif button == "PADBACK" or button == "PAD2" then
-            handled = true;
-            if not addon.Clipboard:CloseIfShown() then
-                self:Hide();
-            end
-        elseif button == "PADLTRIGGER"
-            and not (IsModifierKeyDown and IsModifierKeyDown())
-            and GetDBBool("TTSEnabled")
-            and GetDBBool("TTSUseHotkey") then
-            handled = true;
-            addon.TTSUtil:ToggleSpeaking("book");
-        elseif button == "PADDUP" then
-            if self.scrollable and self.ScrollFrame.SteadyScroll then
-                handled = true;
-                self.ScrollFrame:SteadyScroll(-0.8);
-            end
-        elseif button == "PADDDOWN" then
-            if self.scrollable and self.ScrollFrame.SteadyScroll then
-                handled = true;
-                self.ScrollFrame:SteadyScroll(0.8);
-            end
-        end
-
-        if not EL.inCombat then
-            SetKeyboardInputPropagation(self, not handled);
-        end
-    end
-
-    -- Stops continuous gamepad scrolling when the corresponding direction is released.
-    function DUIBookUIMixin:OnGamePadButtonUp(button)
-        if not self.scrollable or not self.ScrollFrame.StopSteadScroll then
-            return
-        end
-
-        local handled = button == "PADDUP" or button == "PADDDOWN";
-        if handled then
-            self.ScrollFrame:StopSteadScroll();
-        end
-
-        if not EL.inCombat then
-            SetKeyboardInputPropagation(self, not handled);
-        end
-    end
 end
-
 
 
 do  --EventListener
@@ -2434,24 +2344,23 @@ do  --Settings
 
     -- Applies the changed layout after a delay to avoid repeated recalculation.
     function DUIBookUIMixin:OnSettingsChanged()
-        if not self:IsShown() then
+        if not self:IsShown() or self.settingsDirty then
             return
         end
 
-        if not self.settingsDirty then
-            self.settingsDirty = true;
+        self.settingsDirty = true;
 
-            if C_Timer and C_Timer.After then
-                C_Timer.After(0, function()
-                    self.settingsDirty = nil;
-                    CalculateSizeData();
-                    Cache:CalculateTextHeight();
-                end)
-            else
-                self.settingsDirty = nil;
-                CalculateSizeData();
-                Cache:CalculateTextHeight();
-            end
+        -- 3.3.5 compatibility: Recalculate immediately when C_Timer is unavailable.
+        local function Recalculate()
+            self.settingsDirty = nil;
+            CalculateSizeData();
+            Cache:CalculateTextHeight();
+        end
+
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, Recalculate);
+        else
+            Recalculate();
         end
     end
 
