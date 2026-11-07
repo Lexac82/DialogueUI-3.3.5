@@ -69,10 +69,12 @@ do
         if not CloseButton then
             CloseButton = CreateFrame("Button", nil, parent);
             CloseButton.Texture = CloseButton:CreateTexture(nil, "ARTWORK");
-            CloseButton.Texture:SetAllPoints(true);
+            -- 3.3.5 compatibility: Anchor the texture to its parent without the newer boolean argument.
+            CloseButton.Texture:SetAllPoints();
             CloseButton.Texture:SetTexCoord(768/1024, 832/1024, 1488/2048, 1552/2048);
             CloseButton.Highlight = CloseButton:CreateTexture(nil, "HIGHLIGHT");
-            CloseButton.Highlight:SetAllPoints(true);
+            -- 3.3.5 compatibility: Anchor the highlight texture to its parent without the newer boolean argument.
+            CloseButton.Highlight:SetAllPoints();
             CloseButton.Highlight:SetTexCoord(832/1024, 896/1024, 1488/2048, 1552/2048);
 
             function CloseButton:OnClick()
@@ -111,40 +113,72 @@ do  --Header / Book Title
         self:SetAutoScalingText(self.Title, title, minLineHeight);
     end
 
-    function HeaderFrameMixin:SetAutoScalingText(fontString, text, minLineHeight)
-        fontString:SetMaxLines(1);
-        fontString:SetHeight(0);
-        fontString:SetText(text);
+        function HeaderFrameMixin:SetAutoScalingText(fontString, text, minLineHeight)
+        -- 3.3.5 compatibility: Use the modern truncation APIs only when the client provides them.
+        if fontString.SetMaxLines and fontString.SetTextScale and fontString.IsTruncated then
+            fontString:SetMaxLines(1);
+            fontString:SetHeight(0);
+            fontString:SetText(text);
 
-        local _, baseLineHeight = fontString:GetFont();
-        baseLineHeight = Round(baseLineHeight);
+            local _, baseLineHeight = fontString:GetFont();
+            baseLineHeight = Round(baseLineHeight);
 
-        local tryHeight = baseLineHeight;
-        local finalScale = 1;
+            local tryHeight = baseLineHeight;
+            local finalScale = 1;
 
-        while tryHeight >= minLineHeight do
-            local scale = tryHeight / baseLineHeight;
-            fontString:SetTextScale(scale);
-            finalScale = scale;
-            if fontString:IsTruncated() then
-                tryHeight = tryHeight - 2;
-            else
-                break
+            while tryHeight >= minLineHeight do
+                local scale = tryHeight / baseLineHeight;
+                fontString:SetTextScale(scale);
+                finalScale = scale;
+                if fontString:IsTruncated() then
+                    tryHeight = tryHeight - 2;
+                else
+                    break
+                end
             end
-        end
 
-        if fontString:IsTruncated() then
-            local maxLines = 2;
-            fontString:SetMaxLines(maxLines);
-            --After SetMaxLines, It takes one frame to get the correct FontString height
-            --So we calculate its height instead of measuring it
-            self.titleHeight = finalScale * ( maxLines*(baseLineHeight + TITLE_SPACING) - TITLE_SPACING);
+            if fontString:IsTruncated() then
+                local maxLines = 2;
+                fontString:SetMaxLines(maxLines);
+                self.titleHeight = finalScale * (maxLines * (baseLineHeight + TITLE_SPACING) - TITLE_SPACING);
+            else
+                self.titleHeight = fontString:GetHeight();
+            end
         else
-            self.titleHeight = fontString:GetHeight();
+            -- 3.3.5 compatibility: Scale with SetFont when newer text-scale methods are unavailable.
+            local fontFile, baseFontSize, flags = fontString.bookBaseFontFile, fontString.bookBaseFontSize, fontString.bookBaseFontFlags;
+            if not fontFile then
+                fontFile, baseFontSize, flags = fontString:GetFont();
+                fontString.bookBaseFontFile = fontFile;
+                fontString.bookBaseFontSize = baseFontSize;
+                fontString.bookBaseFontFlags = flags;
+            end
+
+            fontString:SetText(text);
+
+            if fontFile and baseFontSize and fontString.GetStringWidth then
+                local fontSize = baseFontSize;
+                local availableWidth = fontString:GetWidth();
+
+                while fontSize > minLineHeight do
+                    fontString:SetFont(fontFile, fontSize, flags);
+                    if fontString:GetStringWidth() <= availableWidth then
+                        break
+                    end
+                    fontSize = math.max(minLineHeight, fontSize - 2);
+                end
+
+                fontString:SetFont(fontFile, fontSize, flags);
+                fontString.bookTextScale = fontSize / baseFontSize;
+            end
+
+            -- 3.3.5 compatibility: Avoid APIs that may not exist on the legacy FontString.
+            self.titleHeight = fontString:GetStringHeight and fontString:GetStringHeight() or fontString:GetHeight();
         end
 
-        self.titleHeight = Round(self.titleHeight);
+        self.titleHeight = Round(self.titleHeight or 0);
     end
+    
 
     function HeaderFrameMixin:GetHeaderHeight()
         return Round( (self:GetTitleHeight()) + (self.heightBelow or 0) )
@@ -162,9 +196,12 @@ do  --Header / Book Title
 
     function HeaderFrameMixin:GetTitleEffectiveLineHeight()
         local _, baseLineHeight = self.Title:GetFont();
-        local scale = self.Title:GetTextScale();
+
+        -- 3.3.5 compatibility: Older clients may not implement GetTextScale.
+        local scale = self.Title.GetTextScale and self.Title:GetTextScale() or self.Title.bookTextScale or 1;
         return baseLineHeight * scale
     end
+    
 
     function HeaderFrameMixin:SetLocation(isGameObject, locationText)
         if  isGameObject and GetDBBool("BookShowLocation") then
@@ -301,9 +338,13 @@ do  --Header / Book Title
     end
 
     function HeaderFrameMixin:QueryLetterSender(itemGUID)
-        if API.canaccessvalue(itemGUID) then
+        -- 3.3.5 compatibility: GUID tooltip lookup and restricted-value checks may be unavailable.
+        local getItemByGUID = addon.TooltipAPI and addon.TooltipAPI.GetItemByGUID;
+        local canAccessValue = API.canaccessvalue;
+
+        if getItemByGUID and (not canAccessValue or canAccessValue(itemGUID)) then
             self.itemGUID = itemGUID;
-            local tooltipData = itemGUID and addon.TooltipAPI.GetItemByGUID(itemGUID);
+            local tooltipData = itemGUID and getItemByGUID(itemGUID);
             if tooltipData then
                 self.dataInstanceID = tooltipData.dataInstanceID;
                 if self.dataInstanceID then
@@ -314,10 +355,14 @@ do  --Header / Book Title
                 end
             end
         end
+
         self.itemGUID = nil;
+        self.dataInstanceID = nil;
+        self:SetScript("OnEvent", nil);
         self:UnregisterEvent("TOOLTIP_DATA_UPDATE");
     end
 
+    
     function HeaderFrameMixin:ProcessTooltipData(tooltipData)
         local line2 = tooltipData.lines and tooltipData.lines[2];
         if line2 and line2.leftColor and line2.leftColor.r == 1 and line2.leftColor.g == 1 and line2.leftColor.b == 1 then
@@ -398,45 +443,75 @@ end
 
 
 do  --Location (Show location for GameObject)
-    local GetBestMapForUnit = C_Map.GetBestMapForUnit;
-    local GetMapInfo = C_Map.GetMapInfo;
-    local GetPlayerMapPosition = C_Map.GetPlayerMapPosition;
+    -- 3.3.5 compatibility: C_Map is unavailable on the original WotLK client.
+    local MapAPI = C_Map;
+    local GetBestMapForUnit = MapAPI and MapAPI.GetBestMapForUnit;
+    local GetMapInfo = MapAPI and MapAPI.GetMapInfo;
+    local GetPlayerMapPosition = MapAPI and MapAPI.GetPlayerMapPosition;
     local GetMinimapZoneText = GetMinimapZoneText;
+    local GetZoneText = GetZoneText;
+    local LegacyGetPlayerMapPosition = GetPlayerMapPosition;
 
     local FORMAT_MAP_COORD = "%s  %.0f, %.0f";
 
     function BookComponent:GetPlayerLocation()
-        local uiMapID = GetBestMapForUnit("player");
         local mapName, x, y;
-        if uiMapID then
-            local mapInfo = GetMapInfo(uiMapID);
-            if mapInfo then
-                mapName = mapInfo.name;
+
+        -- 3.3.5 compatibility: Use the legacy zone and player-map APIs when C_Map is absent.
+        if GetBestMapForUnit and GetMapInfo and LegacyGetPlayerMapPosition then
+            local uiMapID = GetBestMapForUnit("player");
+            if uiMapID then
+                local mapInfo = GetMapInfo(uiMapID);
+                if mapInfo then
+                    mapName = mapInfo.name;
+                end
+
+                local position = LegacyGetPlayerMapPosition(uiMapID, "player");
+                if position then
+                    x = position.x;
+                    y = position.y;
+                end
             end
-            local position = GetPlayerMapPosition(uiMapID, "player");
-            if position then
-                x = position.x;
-                y = position.y;
+        elseif GetZoneText then
+            mapName = GetZoneText();
+
+            -- 3.3.5 compatibility: The legacy function returns x and y as separate numbers.
+            if GetPlayerMapPosition then
+                x, y = GetPlayerMapPosition("player");
             end
         end
 
-        if not mapName then
+        if not mapName and GetMinimapZoneText then
             mapName = GetMinimapZoneText();
         end
 
-        if x and y then
+        if x and y and mapName then
             x = x * 100;
             y = y * 100;
             return string.format(FORMAT_MAP_COORD, mapName, x, y)
-        else
-            return mapName
         end
+
+        return mapName
     end
 end
 
-
 do  --ItemButton (Show item's description lore "")
     local match = string.match;
+
+    -- 3.3.5 compatibility: Fall back to the legacy GetItemInfo return value for the icon.
+    local ItemAPI = C_Item;
+    local GetItemIconByID = ItemAPI and ItemAPI.GetItemIconByID;
+    local GetItemInfo = GetItemInfo;
+
+    local function GetItemIcon(itemID)
+        if GetItemIconByID then
+            return GetItemIconByID(itemID);
+        elseif GetItemInfo then
+            local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(itemID);
+            return icon;
+        end
+    end
+
     local GetItemByID = addon.TooltipAPI.GetItemByID;
     local SourceItemButtonMixin = {};
 
@@ -502,7 +577,8 @@ do  --ItemButton (Show item's description lore "")
     end
 
     function SourceItemButtonMixin:DisplayItemDescription(itemID, description)
-        local icon = C_Item.GetItemIconByID(itemID);
+        -- 3.3.5 compatibility: Use the legacy item-icon fallback when C_Item is unavailable.
+        local icon = GetItemIcon(itemID);
         self.ItemIcon:SetTexture(icon);
         self.ItemText:SetText(description);
         self.ItemBorder:Show();
@@ -534,12 +610,20 @@ do  --ItemButton (Show item's description lore "")
         local borderSize = self.borderEffectiveSize;
         local gap = self.fontSize;
         self.ItemBorder:ClearAllPoints();
-        self.ItemBorder:SetPoint("CENTER", self, "LEFT", 0.5*borderSize, 0);
+        self.ItemBorder:SetPoint("CENTER", self, "LEFT", 0.5 * borderSize, 0);
         self.ItemText:ClearAllPoints();
         self.ItemText:SetPoint("LEFT", self.ItemBorder, "RIGHT", gap, 0);
-        local textWidth = self.ItemText:GetWrappedWidth();
+
+        -- 3.3.5 compatibility: Fall back to GetStringWidth when GetWrappedWidth is unavailable.
+        local textWidth;
+        if self.ItemText.GetWrappedWidth then
+            textWidth = self.ItemText:GetWrappedWidth();
+        else
+            textWidth = math.min(self.ItemText:GetStringWidth(), self.ItemText:GetWidth());
+        end
+
         local textHeight = self.ItemText:GetHeight();
-        self.TextBackground:SetSize(textWidth + 2*gap, textHeight + 2*gap);
+        self.TextBackground:SetSize(textWidth + 2 * gap, textHeight + 2 * gap);
         self.TextBackground:ClearAllPoints();
         self.TextBackground:SetPoint("LEFT", self.ItemText, "LEFT", -gap, 0);
         self:SetSize(API.Round(borderSize + 2 * gap + textWidth), API.Round(math.max(textHeight, borderSize)));
